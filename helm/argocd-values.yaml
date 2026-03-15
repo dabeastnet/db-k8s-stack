@@ -1,0 +1,28 @@
+# Example values file for installing ArgoCD via Helm
+# Reference: https://github.com/argoproj/argo-helm/tree/main/charts/argo-cd
+
+global:
+  # Use our custom namespace for ArgoCD
+  namespace: argocd
+
+server:
+  # Expose the ArgoCD API server via ingress
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - argocd.example.com
+    tls:
+      - hosts:
+          - argocd.example.com
+        secretName: argocd-tls
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+
+  # Optionally set the service type
+  service:
+    type: ClusterIP
+
+controller:
+  # Configure the number of replicas for HA
+  replicas: 1

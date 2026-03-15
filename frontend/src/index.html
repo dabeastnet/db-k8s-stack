@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>db-k8s-stack</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 2rem;
+        line-height: 1.6;
+        color: #333;
+      }
+      h1 {
+        color: #0069d9;
+      }
+      .info {
+        font-size: 1.2rem;
+        margin-top: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Welcome, <span id="user">Loading…</span>!</h1>
+    <p class="info">API Container ID: <span id="containerId">Loading…</span></p>
+
+    <script>
+      // Fetch the current name from the API
+      async function fetchName() {
+        try {
+          const res = await fetch('/api/name');
+          if (!res.ok) throw new Error('Failed to fetch name');
+          const data = await res.json();
+          document.getElementById('user').innerText = data.name;
+        } catch (err) {
+          console.error(err);
+          document.getElementById('user').innerText = 'Unavailable';
+        }
+      }
+
+      // Fetch the container identifier from the API
+      async function fetchContainerId() {
+        try {
+          const res = await fetch('/api/container-id');
+          if (!res.ok) throw new Error('Failed to fetch container ID');
+          const data = await res.json();
+          document.getElementById('containerId').innerText = data.container_id;
+        } catch (err) {
+          console.error(err);
+          document.getElementById('containerId').innerText = 'Unavailable';
+        }
+      }
+
+      // Poll the version file to detect layout changes
+      async function checkVersion() {
+        try {
+          const res = await fetch('/version.txt?_t=' + new Date().getTime());
+          if (!res.ok) throw new Error('Failed to fetch version');
+          const versionText = (await res.text()).trim();
+          if (window.currentVersion && window.currentVersion !== versionText) {
+            // If the version changed, reload the page to pick up new layout
+            location.reload();
+            return;
+          }
+          window.currentVersion = versionText;
+        } catch (err) {
+          console.error('Version check failed:', err);
+        }
+      }
+
+      async function init() {
+        await fetchName();
+        await fetchContainerId();
+        await checkVersion();
+        // Re-check version every 15 seconds
+        setInterval(checkVersion, 15000);
+      }
+      init();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,18 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: db-api-servicemonitor
+  namespace: db-stack
+  labels:
+    release: prometheus  # Adjust this to match your Prometheus operator release name
+spec:
+  selector:
+    matchLabels:
+      app: db-api
+  namespaceSelector:
+    matchNames:
+      - db-stack
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s

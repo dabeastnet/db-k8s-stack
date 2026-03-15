@@ -1,0 +1,50 @@
+version: "3.8"
+
+services:
+  db-postgres:
+    image: postgres:16-alpine
+    container_name: db-postgres
+    environment:
+      - POSTGRES_DB=demo
+      - POSTGRES_USER=demo
+      - POSTGRES_PASSWORD=demo
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    networks:
+      - demo
+
+  api:
+    build:
+      context: ./api
+    container_name: db-api
+    depends_on:
+      - db-postgres
+    environment:
+      - DB_HOST=db-postgres
+      - DB_PORT=5432
+      - DB_NAME=demo
+      - DB_USER=demo
+      - DB_PASSWORD=demo
+      - POD_NAME=db-api
+    ports:
+      - "8000:8000"
+    networks:
+      - demo
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: db-frontend
+    depends_on:
+      - api
+    ports:
+      - "8080:80"
+    networks:
+      - demo
+
+volumes:
+  db-data:
+
+networks:
+  demo:
+    driver: bridge

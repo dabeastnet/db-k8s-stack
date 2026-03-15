@@ -1,0 +1,25 @@
+# Exclude Git metadata
+.git
+.gitignore
+
+# Exclude Python cache and virtual environments
+__pycache__/
+.venv/
+venv/
+
+# Exclude docs, tests and local scripts from final image
+docs/
+LOCAL_TESTING.md
+README.md
+*.md
+package.sh
+build.sh
+deploy-*.sh
+test-*.sh
+push.sh
+
+# Exclude unused files and archives
+db-k8s-stack.zip
+*.tar
+*.log
+*.img

@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: db-app-config
+  namespace: db-stack
+data:
+  DB_HOST: db-postgres
+  DB_PORT: "5432"
+  DB_NAME: demo
+  # Additional API configuration can be added here

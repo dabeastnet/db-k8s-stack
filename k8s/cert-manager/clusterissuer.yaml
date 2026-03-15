@@ -1,0 +1,33 @@
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    # The ACME server URL for the production environment
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: admin@example.com  # Replace with your contact email
+    privateKeySecretRef:
+      name: letsencrypt-prod
+    solvers:
+      - http01:
+          ingress:
+            class: nginx
+
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    # The ACME staging server is used for testing. Certificates issued by this server
+    # are not trusted by browsers.
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: admin@example.com  # Replace with your contact email
+    privateKeySecretRef:
+      name: letsencrypt-staging
+    solvers:
+      - http01:
+          ingress:
+            class: nginx
