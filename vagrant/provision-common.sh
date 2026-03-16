@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
+export DEBIAN_FRONTEND=noninteractive
 
 # Common setup tasks for all nodes
 # Disable swap
@@ -38,6 +39,34 @@ sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.to
 systemctl restart containerd
 systemctl enable containerd
 
+
+
+# Ensure a hostPath exists for the PostgreSQL PersistentVolume.  Without this
+# directory the hostPath PV defined in the manifests cannot be created.  The
+# directory is owned by root; the postgres container runs with fsGroup 999 so
+# POSIX permissions are still respected via the group permission bits on the
+# volume.
+mkdir -p /mnt/postgres-data
+
+# Add Kubernetes apt repository (new pkgs.k8s.io repo for v1.29)
+mkdir -p -m 755 /etc/apt/keyrings
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /' > /etc/apt/sources.list.d/kubernetes.list
+
+# apt-get update -y
+# apt-get install -y kubelet kubeadm kubectl
+# apt-mark hold kubelet kubeadm kubectl
+# systemctl enable kubelet
+
+
+apt-get update
+apt-get install -y \
+  -o Dpkg::Options::="--force-confdef" \
+  -o Dpkg::Options::="--force-confold" \
+  kubelet kubeadm kubectl cri-tools conntrack kubernetes-cni
+
+
+
 # -----------------------------------------------------------------------------
 # Configure kubelet to advertise the correct node IP
 #
@@ -54,24 +83,12 @@ if [ -n "$PRIVATE_IP" ]; then
   cat <<EOF >/etc/default/kubelet
 KUBELET_EXTRA_ARGS=--node-ip=$PRIVATE_IP
 EOF
-  systemctl daemon-reload
-  # kubelet may not be running yet, but restart to pick up new args if it is
-  systemctl restart kubelet || true
+  # systemctl daemon-reload
+  # # kubelet may not be running yet, but restart to pick up new args if it is
+  # systemctl restart kubelet || true
+  if systemctl list-unit-files | grep -q '^kubelet.service'; then
+    systemctl daemon-reload
+    systemctl enable kubelet
+    systemctl restart kubelet
+  fi
 fi
-
-# Ensure a hostPath exists for the PostgreSQL PersistentVolume.  Without this
-# directory the hostPath PV defined in the manifests cannot be created.  The
-# directory is owned by root; the postgres container runs with fsGroup 999 so
-# POSIX permissions are still respected via the group permission bits on the
-# volume.
-mkdir -p /mnt/postgres-data
-
-# Add Kubernetes apt repository (new pkgs.k8s.io repo for v1.29)
-mkdir -p -m 755 /etc/apt/keyrings
-curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /' > /etc/apt/sources.list.d/kubernetes.list
-
-apt-get update -y
-apt-get install -y kubelet kubeadm kubectl
-apt-mark hold kubelet kubeadm kubectl
-systemctl enable kubelet
