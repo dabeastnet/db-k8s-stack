@@ -5,13 +5,10 @@ JOIN_SCRIPT=/vagrant/join.sh
 
 # Initialize control plane if not already
 if [ ! -f /etc/kubernetes/admin.conf ]; then
-  # Detect the private IP on the host‐only network.  Relying on `hostname -I | awk '{print $2}'`
-  # often returns the wrong interface (e.g. the NAT 10.0.2.x address), which
-  # prevents the control plane from being reachable by worker nodes.  We pick
-  # the first 192.168.56.x address instead.
+  # Detect the private IP on the host-only network. Relying on
+  # `hostname -I | awk '{print $2}'` is brittle and may pick the NAT interface.
   APISERVER_IP=$(hostname -I | tr ' ' '\n' | grep -m1 '^192\.168\.56\.') || true
   if [ -z "$APISERVER_IP" ]; then
-    # Fallback to the second address if no 192.168.56.x was found
     APISERVER_IP=$(hostname -I | awk '{print $2}')
   fi
   kubeadm init --pod-network-cidr=10.244.0.0/16 --apiserver-advertise-address="$APISERVER_IP"
@@ -22,8 +19,14 @@ mkdir -p /home/vagrant/.kube
 cp -i /etc/kubernetes/admin.conf /home/vagrant/.kube/config
 chown vagrant:vagrant /home/vagrant/.kube/config
 
-# Install Flannel CNI plugin
-su - vagrant -c "kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml"
+# Install Flannel CNI plugin.
+# In Vagrant, flannel will otherwise pick the default NAT interface (10.0.2.15)
+# on every node, which breaks cross-node pod traffic. Patch the manifest so
+# flanneld binds to the host-only interface used between VMs.
+FLANNEL_MANIFEST=/tmp/kube-flannel.yml
+curl -fsSL -o "$FLANNEL_MANIFEST" https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
+sed -i '/- --kube-subnet-mgr/a\        - --iface=enp0s8' "$FLANNEL_MANIFEST"
+su - vagrant -c "kubectl apply -f $FLANNEL_MANIFEST"
 
 # Generate join script
 kubeadm token create --print-join-command >"${JOIN_SCRIPT}"
