@@ -6,10 +6,19 @@ metadata:
   labels:
     app: db-frontend
 spec:
+  # Expose the frontend outside the cluster via a NodePort service so that clients
+  # can access it directly without using `kubectl port-forward`.  Setting the
+  # service type to NodePort causes Kubernetes to allocate a port on each node
+  # (within the range 30000‑32767) that forwards to the service.
+  type: NodePort
   ports:
     - port: 80
       targetPort: http
       protocol: TCP
       name: http
+      # Reserve a stable NodePort within the allowed range (30000‑32767).  The
+      # Vagrantfile forwards this port to a host port so you can access the
+      # frontend at http://localhost:18080.
+      nodePort: 30080
   selector:
     app: db-frontend

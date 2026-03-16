@@ -15,6 +15,13 @@ Vagrant.configure("2") do |config|
   config.vm.define "cp1" do |master|
     master.vm.hostname = "cp1"
     master.vm.network "private_network", ip: "192.168.56.10"
+
+    # Forward the NodePort exposed by the frontend service to the host.
+    # The NodePort service in k8s/frontend/service.yaml exposes the
+    # frontend on port 30080 on each node.  Expose it on port 18080 on
+    # your host machine so you can access the application at
+    # http://localhost:18080 without running `kubectl port-forward`.
+    master.vm.network "forwarded_port", guest: 30080, host: 18080, auto_correct: true
     master.vm.provider "virtualbox" do |vb|
       vb.memory = 4096
       vb.cpus = 2
