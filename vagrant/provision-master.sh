@@ -5,7 +5,16 @@ JOIN_SCRIPT=/vagrant/join.sh
 
 # Initialize control plane if not already
 if [ ! -f /etc/kubernetes/admin.conf ]; then
-  kubeadm init --pod-network-cidr=10.244.0.0/16 --apiserver-advertise-address="$(hostname -I | awk '{print $2}')"
+  # Detect the private IP on the host‐only network.  Relying on `hostname -I | awk '{print $2}'`
+  # often returns the wrong interface (e.g. the NAT 10.0.2.x address), which
+  # prevents the control plane from being reachable by worker nodes.  We pick
+  # the first 192.168.56.x address instead.
+  APISERVER_IP=$(hostname -I | tr ' ' '\n' | grep -m1 '^192\.168\.56\.') || true
+  if [ -z "$APISERVER_IP" ]; then
+    # Fallback to the second address if no 192.168.56.x was found
+    APISERVER_IP=$(hostname -I | awk '{print $2}')
+  fi
+  kubeadm init --pod-network-cidr=10.244.0.0/16 --apiserver-advertise-address="$APISERVER_IP"
 fi
 
 # Setup kubeconfig for vagrant user

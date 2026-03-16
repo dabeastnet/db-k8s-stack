@@ -6,7 +6,11 @@ metadata:
   labels:
     app: db-api
 spec:
-  replicas: 3
+  # The cluster currently has two worker nodes.  Running more replicas than
+  # schedulable nodes causes one pod to remain Pending due to the
+  # topologySpreadConstraints (DoNotSchedule).  Reduce the replica count
+  # accordingly.
+  replicas: 2
   selector:
     matchLabels:
       app: db-api

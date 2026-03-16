@@ -1,3 +1,27 @@
+# Define a hostPath PersistentVolume for the PostgreSQL data directory.  A
+# dynamic provisioner is not installed in this cluster, so without a PV the
+# PersistentVolumeClaim would remain pending.  This volume uses the
+# host directory `/mnt/postgres-data`, which is created during Vagrant
+# provisioning in provision-common.sh.  The storageClassName "manual" is
+# arbitrary and used to bind the PVC below.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: db-postgres-pv
+  labels:
+    app: db-postgres
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: manual
+  hostPath:
+    path: /mnt/postgres-data
+
+---
+
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -11,7 +35,7 @@ spec:
   resources:
     requests:
       storage: 1Gi
-  storageClassName: standard
+  storageClassName: manual
 
 ---
 apiVersion: apps/v1

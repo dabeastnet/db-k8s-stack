@@ -38,6 +38,34 @@ sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.to
 systemctl restart containerd
 systemctl enable containerd
 
+# -----------------------------------------------------------------------------
+# Configure kubelet to advertise the correct node IP
+#
+# In a Vagrant environment each VM has multiple network interfaces.  By default
+# kubelet will pick the first internal address (often the NAT IP 10.0.2.x) when
+# registering the node.  This leads to all nodes reporting the same IP and
+# causes networking issues and API server timeouts.  To fix this, detect the
+# address on the host‐only network (192.168.56.x) and set it via
+# KUBELET_EXTRA_ARGS.  Writing to /etc/default/kubelet ensures kubelet picks up
+# the flag on startup.  After writing the config we reload and restart
+# kubelet so the change takes effect immediately.
+PRIVATE_IP=$(hostname -I | tr ' ' '\n' | grep -m1 '^192\.168\.56\.') || true
+if [ -n "$PRIVATE_IP" ]; then
+  cat <<EOF >/etc/default/kubelet
+KUBELET_EXTRA_ARGS=--node-ip=$PRIVATE_IP
+EOF
+  systemctl daemon-reload
+  # kubelet may not be running yet, but restart to pick up new args if it is
+  systemctl restart kubelet || true
+fi
+
+# Ensure a hostPath exists for the PostgreSQL PersistentVolume.  Without this
+# directory the hostPath PV defined in the manifests cannot be created.  The
+# directory is owned by root; the postgres container runs with fsGroup 999 so
+# POSIX permissions are still respected via the group permission bits on the
+# volume.
+mkdir -p /mnt/postgres-data
+
 # Add Kubernetes apt repository (new pkgs.k8s.io repo for v1.29)
 mkdir -p -m 755 /etc/apt/keyrings
 curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
