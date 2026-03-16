@@ -21,22 +21,26 @@ spec:
         fsGroup: 1001
       containers:
         - name: db-frontend
-          image: ghcr.io/dabeastnet/db-frontend:latest
+          # Use the GitHub Container Registry image for the frontend
+          image: ghcr.io/dabeastnet/db-frontend:v3
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
               name: http
+          # Configure probes to give Apache extra time to become ready
           readinessProbe:
             httpGet:
               path: /
               port: http
-            initialDelaySeconds: 5
+            # Wait a bit longer before checking readiness since the Apache proxy must also reach the API
+            initialDelaySeconds: 10
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /
               port: http
-            initialDelaySeconds: 10
+            # Delay the liveness probe to avoid restart loops while Apache starts
+            initialDelaySeconds: 20
             periodSeconds: 20
           resources:
             requests:

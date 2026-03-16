@@ -28,7 +28,7 @@ spec:
               app: db-api
       containers:
         - name: db-api
-          image: ghcr.io/dabeastnet/db-api:latest
+          image: ghcr.io/dabeastnet/db-api:v6
           imagePullPolicy: IfNotPresent
           env:
             - name: DB_HOST
@@ -92,9 +92,3 @@ spec:
             limits:
               cpu: "500m"
               memory: "512Mi"
-            startupProbe:
-              httpGet:
-                path: /healthz
-                port: http
-              failureThreshold: 30
-              periodSeconds: 10

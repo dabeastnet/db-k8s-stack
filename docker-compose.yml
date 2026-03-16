@@ -26,8 +26,9 @@ services:
       - DB_USER=demo
       - DB_PASSWORD=demo
       - POD_NAME=db-api
+    # Expose the API on port 8000 in the container and map it to 18000 on the host
     ports:
-      - "8000:8000"
+      - "18000:8000"
     networks:
       - demo
 
@@ -37,8 +38,9 @@ services:
     container_name: db-frontend
     depends_on:
       - api
+    # Expose the Apache server (running on port 8080 in the container) on port 18080 on the host
     ports:
-      - "8080:80"
+      - "18080:8080"
     networks:
       - demo
 

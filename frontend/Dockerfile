@@ -26,7 +26,7 @@ USER 1001
 
 EXPOSE 8080
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s \
   CMD wget -qO- http://localhost:8080/ || exit 1
 
 # The base image provides the default CMD to run httpd
