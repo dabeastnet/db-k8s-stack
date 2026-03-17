@@ -1,0 +1,193 @@
+##
+# Prometheus configuration and deployment
+#
+# This manifest defines a basic Prometheus setup for monitoring the Kubernetes
+# cluster and the application stack.  It includes:
+#
+# * A ConfigMap containing the Prometheus configuration (prometheus.yml).
+# * A ServiceAccount, ClusterRole and ClusterRoleBinding granting Prometheus
+#   read-only access to Kubernetes APIs required for service discovery.
+# * A Deployment running a single Prometheus instance configured to scrape
+#   metrics from the node-exporter, kube‑state‑metrics and the db-api service.
+# * A Service exposing the Prometheus web UI on port 9090 within the cluster.
+#
+# The monitoring stack lives in the ``monitoring`` namespace which is created
+# separately in ``namespace.yaml``.  To deploy this stack, run:
+#
+#   kubectl apply -f k8s/monitoring/namespace.yaml
+#   kubectl apply -f k8s/monitoring/prometheus.yaml
+#
+# Prometheus stores its data in an emptyDir volume, which means metrics will be
+# lost if the Pod restarts.  For a production environment you might replace
+# emptyDir with a PersistentVolumeClaim.
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+  labels:
+    app: prometheus
+    app.kubernetes.io/component: server
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    scrape_configs:
+      # Scrape Prometheus itself
+      - job_name: prometheus
+        static_configs:
+          - targets: ['localhost:9090']
+
+      # Scrape kube-state-metrics for cluster state
+      - job_name: kube-state-metrics
+        static_configs:
+          - targets:
+              - kube-state-metrics.monitoring.svc.cluster.local:8080
+
+      # Scrape node-exporter for node level metrics
+      - job_name: node-exporter
+        static_configs:
+          - targets:
+              - node-exporter.monitoring.svc.cluster.local:9100
+
+      # Scrape the db-api service for application metrics.  The ``db-api``
+      # Deployment exposes metrics at ``/metrics`` on port 8000.  Service
+      # discovery by full service DNS name works across namespaces.
+      - job_name: db-api
+        # The db-api service exposes port 80 which forwards to the API
+        # container on port 8000.  Scrape the /metrics endpoint on port 80.
+        metrics_path: /metrics
+        static_configs:
+          - targets:
+              - db-api.db-stack.svc.cluster.local:80
+
+      # Scrape the db-frontend service.  Although the frontend currently does
+      # not expose Prometheus metrics by default, this configuration is
+      # included as a placeholder.  You may remove or adjust this section
+      # depending on your application.
+      - job_name: db-frontend
+        # The db-frontend service also exposes port 80.  While the
+        # frontend does not emit Prometheus metrics by default, this is
+        # included as an example and placeholder.  It will not scrape
+        # successfully until instrumentation is added.
+        metrics_path: /metrics
+        static_configs:
+          - targets:
+              - db-frontend.db-stack.svc.cluster.local:80
+
+      # Auto-discover and scrape node-exporter on all cluster nodes.  This
+      # configuration rewrites the discovered node IP addresses to port 9100
+      # which node-exporter listens on by default.
+      - job_name: kubernetes-nodes
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - source_labels: [__address__]
+            regex: '(.*):\d+'
+            target_label: __address__
+            replacement: '${1}:9100'
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels:
+    app: prometheus
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus
+  labels:
+    app: prometheus
+rules:
+  # Allow Prometheus to discover nodes, pods, services and endpoints.
+  - apiGroups: ['']
+    resources:
+      - nodes
+      - nodes/metrics
+      - services
+      - endpoints
+      - pods
+    verbs: ['get', 'list', 'watch']
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus
+  labels:
+    app: prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus
+subjects:
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: monitoring
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels:
+    app: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      serviceAccountName: prometheus
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.47.2
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --web.listen-address=0.0.0.0:9090
+          ports:
+            - containerPort: 9090
+              name: web
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/prometheus
+            - name: data-volume
+              mountPath: /prometheus
+      volumes:
+        - name: config-volume
+          configMap:
+            name: prometheus-config
+        - name: data-volume
+          emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels:
+    app: prometheus
+spec:
+  type: ClusterIP
+  ports:
+    - name: web
+      port: 9090
+      targetPort: web
+  selector:
+    app: prometheus

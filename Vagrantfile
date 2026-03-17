@@ -22,6 +22,15 @@ Vagrant.configure("2") do |config|
     # your host machine so you can access the application at
     # http://localhost:18080 without running `kubectl port-forward`.
     master.vm.network "forwarded_port", guest: 30080, host: 18080, auto_correct: true
+
+    # Forward the Prometheus web UI from the control plane node to the host.
+    # Prometheus runs in the monitoring namespace and is exposed on port 9090
+    # via a ClusterIP service.  Forwarding the port here allows you to
+    # access the Prometheus dashboard at http://localhost:19090 without
+    # running kubectl port-forward.  If the port 19090 on your host is
+    # already in use, Vagrant will auto-correct to the next available
+    # port when auto_correct is true.
+    master.vm.network "forwarded_port", guest: 9090, host: 19090, auto_correct: true
     master.vm.provider "virtualbox" do |vb|
       vb.memory = 4096
       vb.cpus = 2

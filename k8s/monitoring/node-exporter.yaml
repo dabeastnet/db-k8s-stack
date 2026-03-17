@@ -1,0 +1,87 @@
+##
+# Prometheus Node Exporter DaemonSet
+#
+# Node Exporter exposes hardware and OS metrics about cluster nodes.  Deploying
+# it as a DaemonSet ensures that a copy runs on every node.  Metrics are
+# served on port 9100.  We mount host directories such as /proc, /sys and the
+# root filesystem to allow the exporter to read system information.  The
+# ``hostNetwork`` and ``hostPID`` settings allow the exporter to bind to the
+# host network namespace and access process information.
+
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-exporter
+  namespace: monitoring
+  labels:
+    app: node-exporter
+spec:
+  selector:
+    matchLabels:
+      app: node-exporter
+  template:
+    metadata:
+      labels:
+        app: node-exporter
+    spec:
+      # Run on control plane nodes as well as workers
+      tolerations:
+        - key: "node-role.kubernetes.io/control-plane"
+          operator: "Exists"
+          effect: "NoSchedule"
+        - key: "node-role.kubernetes.io/master"
+          operator: "Exists"
+          effect: "NoSchedule"
+      hostNetwork: true
+      hostPID: true
+      containers:
+        - name: node-exporter
+          image: prom/node-exporter:v1.8.0
+          args:
+            - --path.procfs=/host/proc
+            - --path.sysfs=/host/sys
+            - --path.rootfs=/host/root
+          ports:
+            - name: metrics
+              containerPort: 9100
+              hostPort: 9100
+              protocol: TCP
+          volumeMounts:
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: sys
+              mountPath: /host/sys
+              readOnly: true
+            - name: rootfs
+              mountPath: /host/root
+              readOnly: true
+      volumes:
+        - name: proc
+          hostPath:
+            path: /proc
+        - name: sys
+          hostPath:
+            path: /sys
+        - name: rootfs
+          hostPath:
+            path: /
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-exporter
+  namespace: monitoring
+  labels:
+    app: node-exporter
+spec:
+  # Use ClusterIP None so that the service resolves to Pod IPs directly.
+  clusterIP: None
+  selector:
+    app: node-exporter
+  ports:
+    - name: metrics
+      port: 9100
+      targetPort: metrics
