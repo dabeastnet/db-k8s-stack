@@ -22,32 +22,32 @@ graph TD
   Browser["Browser"]
 
   subgraph CF["Cloudflare Edge"]
-    CFEdge["TLS termination\nproject.beckersd.com\nargocd.beckersd.com"]
+    CFEdge["TLS termination project.beckersd.com argocd.beckersd.com"]
   end
 
   subgraph K8s["Kubernetes Cluster  (cp1 · worker1 · worker2)"]
-    CFPod["db-cloudflared pod\n(db-stack ns)"]
-    Ingress["db-ingress-nginx\nNodePort 30080/30443"]
+    CFPod["db-cloudflared pod (db-stack ns)"]
+    Ingress["db-ingress-nginx NodePort 30080/30443"]
 
     subgraph AppNS["db-stack namespace"]
-      Frontend["db-frontend\nApache · 1 replica"]
-      API["db-api\nFastAPI · 2 replicas\nworker1 + worker2"]
-      DB[("db-postgres\nStatefulSet · PVC")]
+      Frontend["db-frontend Apache · 1 replica"]
+      API["db-api FastAPI · 2 replicas worker1 + worker2"]
+      DB[("db-postgres StatefulSet · PVC")]
     end
 
     subgraph MonNS["monitoring namespace"]
-      Prometheus["db-prometheus\nNodePort 30090"]
-      Grafana["db-grafana\nNodePort 30030"]
+      Prometheus["db-prometheus NodePort 30090"]
+      Grafana["db-grafana NodePort 30030"]
       KSM["db-kube-state-metrics"]
-      NE["db-node-exporter\nDaemonSet"]
+      NE["db-node-exporter DaemonSet"]
     end
 
     subgraph ArgoCDNS["argocd namespace"]
-      ArgoCD["db-argocd-server\nHostname: argocd.beckersd.com"]
+      ArgoCD["db-argocd-server Hostname: argocd.beckersd.com"]
     end
   end
 
-  GitHub["GitHub\ndabeastnet/db-k8s-stack"]
+  GitHub["GitHub dabeastnet/db-k8s-stack"]
 
   Browser -->|"HTTPS"| CFEdge
   CFEdge <-->|"HTTP (tunnel)"| CFPod
