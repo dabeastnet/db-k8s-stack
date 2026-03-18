@@ -10,7 +10,10 @@
       "Bash(cd \"/c/Users/Dieter/OneDrive - Thomas More/Linux Web & Network Services/db-k8s-stack\" && vagrant up worker2 2>&1)",
       "Bash(ls:*)",
       "Bash(find:*)",
-      "Bash(head:*)"
+      "Bash(head:*)",
+      "Bash(VBoxManage list:*)",
+      "Bash(VBoxManage modifyvm:*)",
+      "Bash(cd \"/c/Users/Dieter/OneDrive - Thomas More/Linux Web & Network Services/db-k8s-stack\" && vagrant reload cp1 --no-provision 2>&1)"
     ]
   }
 }

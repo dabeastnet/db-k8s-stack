@@ -61,6 +61,7 @@ kubectl apply -f "$K8S_DIR/monitoring/namespace.yaml"
 kubectl apply -f "$K8S_DIR/monitoring/prometheus.yaml"
 kubectl apply -f "$K8S_DIR/monitoring/kube-state-metrics.yaml"
 kubectl apply -f "$K8S_DIR/monitoring/node-exporter.yaml"
+kubectl apply -f "$K8S_DIR/monitoring/grafana.yaml"
 
 # Attempt to create a ServiceMonitor only when the CRD exists.  The
 # Prometheus operator defines the ServiceMonitor kind.  When the operator

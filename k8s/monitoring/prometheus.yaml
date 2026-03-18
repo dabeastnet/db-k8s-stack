@@ -48,40 +48,16 @@ data:
           - targets:
               - db-kube-state-metrics.monitoring.svc.cluster.local:8080
 
-      # Scrape node-exporter for node level metrics
-      - job_name: node-exporter
-        static_configs:
-          - targets:
-              - db-node-exporter.monitoring.svc.cluster.local:9100
-
-      # Scrape the db-api service for application metrics.  The ``db-api``
-      # Deployment exposes metrics at ``/metrics`` on port 8000.  Service
-      # discovery by full service DNS name works across namespaces.
+      # Scrape the db-api service for application metrics.
       - job_name: db-api
-        # The db-api service exposes port 80 which forwards to the API
-        # container on port 8000.  Scrape the /metrics endpoint on port 80.
         metrics_path: /metrics
         static_configs:
           - targets:
               - db-api.db-stack.svc.cluster.local:80
 
-      # Scrape the db-frontend service.  Although the frontend currently does
-      # not expose Prometheus metrics by default, this configuration is
-      # included as a placeholder.  You may remove or adjust this section
-      # depending on your application.
-      - job_name: db-frontend
-        # The db-frontend service also exposes port 80.  While the
-        # frontend does not emit Prometheus metrics by default, this is
-        # included as an example and placeholder.  It will not scrape
-        # successfully until instrumentation is added.
-        metrics_path: /metrics
-        static_configs:
-          - targets:
-              - db-frontend.db-stack.svc.cluster.local:80
-
-      # Auto-discover and scrape node-exporter on all cluster nodes.  This
-      # configuration rewrites the discovered node IP addresses to port 9100
-      # which node-exporter listens on by default.
+      # Auto-discover all cluster nodes and scrape node-exporter on port 9100.
+      # Relabeling adds a human-readable "node" label from the node hostname
+      # so graphs show "cp1 / worker1 / worker2" instead of raw IP addresses.
       - job_name: kubernetes-nodes
         kubernetes_sd_configs:
           - role: node
@@ -90,6 +66,8 @@ data:
             regex: '(.*):\d+'
             target_label: __address__
             replacement: '${1}:9100'
+          - source_labels: [__meta_kubernetes_node_name]
+            target_label: node
 
 ---
 apiVersion: v1

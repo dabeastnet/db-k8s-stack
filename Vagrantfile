@@ -47,6 +47,10 @@ Vagrant.configure("2") do |config|
     # Forwarding this NodePort allows you to access the Prometheus dashboard at
     # http://localhost:19090 without using kubectl port-forward manually.
     master.vm.network "forwarded_port", guest: 30090, host: 19090, auto_correct: true
+
+    # Forward the Grafana NodePort (30030) to port 13000 on the host.
+    # Access Grafana at http://localhost:13000 (admin / admin).
+    master.vm.network "forwarded_port", guest: 30030, host: 13000, auto_correct: true
     master.vm.provider "virtualbox" do |vb|
       vb.memory = 4096
       vb.cpus = 2
