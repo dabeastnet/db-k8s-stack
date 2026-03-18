@@ -1,28 +1,44 @@
-# Example values file for installing ArgoCD via Helm
+# Values file for installing ArgoCD via the official argo-cd Helm chart.
 # Reference: https://github.com/argoproj/argo-helm/tree/main/charts/argo-cd
+#
+# Install / upgrade:
+#   helm repo add argo https://argoproj.github.io/argo-helm
+#   helm repo update
+#   helm upgrade --install argocd argo/argo-cd \
+#     --namespace argocd --create-namespace \
+#     -f helm/argocd-values.yaml
 
 global:
-  # Use our custom namespace for ArgoCD
-  namespace: argocd
+  # Allow ArgoCD pods and pre-install Jobs to run on the control-plane node.
+  # During `vagrant up` the workers haven't joined yet when cp1 is provisioned,
+  # so without this toleration the CRD-management Job can't schedule and the
+  # Helm install times out.  This is acceptable in a local dev cluster.
+  tolerations:
+    - key: "node-role.kubernetes.io/control-plane"
+      operator: "Exists"
+      effect: "NoSchedule"
 
 server:
-  # Expose the ArgoCD API server via ingress
+  # Run ArgoCD in plain HTTP mode so the nginx ingress controller can proxy
+  # it without needing TLS passthrough.  Cloudflare Tunnel (or cert-manager
+  # in a later step) handles outer TLS termination.
+  extraArgs:
+    - --insecure
+
   ingress:
     enabled: true
     ingressClassName: nginx
     hosts:
-      - argocd.example.com
-    tls:
-      - hosts:
-          - argocd.example.com
-        secretName: argocd-tls
+      - argocd.example.com   # Replace with your real domain
     annotations:
-      cert-manager.io/cluster-issuer: letsencrypt-prod
+      nginx.ingress.kubernetes.io/ssl-redirect: "false"
+      nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+      # Uncomment once cert-manager is installed:
+      # cert-manager.io/cluster-issuer: letsencrypt-prod
+      # nginx.ingress.kubernetes.io/ssl-redirect: "true"
 
-  # Optionally set the service type
   service:
     type: ClusterIP
 
 controller:
-  # Configure the number of replicas for HA
   replicas: 1

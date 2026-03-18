@@ -16,16 +16,16 @@ Vagrant.configure("2") do |config|
     master.vm.hostname = "cp1"
     master.vm.network "private_network", ip: "192.168.56.10"
 
-    # Forward the NodePort exposed by the frontend service to the host.
-    # The NodePort service in k8s/frontend/service.yaml exposes the
-    # frontend on port 30080 on each node.  Expose it on port 18080 on
-    # your host machine so you can access the application at
-    # http://localhost:18080 without running `kubectl port-forward`.
-    # Forward the Kubernetes NodePort 30080 on the control plane node to port
-    # 18080 on your host.  The frontend service exposes port 80 and is mapped
-    # to NodePort 30080 in k8s/frontend/service.yaml.  Forwarding this port
-    # allows you to access the application at http://localhost:18080.
+    # Forward the nginx ingress controller HTTP NodePort to the host.
+    # The ingress controller listens on NodePort 30080 (HTTP) and routes
+    # traffic to db-frontend (/) and db-api (/api/) based on the Host header.
+    # Access the application at http://localhost:18080 (Host: app.example.com).
     master.vm.network "forwarded_port", guest: 30080, host: 18080, auto_correct: true
+
+    # Forward the nginx ingress controller HTTPS NodePort to the host.
+    # When cert-manager is configured the ingress terminates TLS on 30443.
+    # Access via https://localhost:18443.
+    master.vm.network "forwarded_port", guest: 30443, host: 18443, auto_correct: true
 
 
     # Forward the Prometheus web UI from the control plane node to the host.

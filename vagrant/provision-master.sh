@@ -33,6 +33,42 @@ su - vagrant -c "kubectl patch daemonset kube-flannel-ds -n kube-flannel --type=
   -p='[{\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/args/-\",\"value\":\"--iface=enp0s8\"}]'"
 su - vagrant -c "kubectl rollout status daemonset kube-flannel-ds -n kube-flannel --timeout=120s"
 
+# Install Helm (only on the control plane — workers do not need it)
+if ! command -v helm >/dev/null 2>&1; then
+  curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+fi
+
+# Install nginx ingress controller via Helm.
+# The service type is NodePort because Vagrant/bare-metal clusters have no
+# cloud load-balancer.  HTTP lands on 30080 and HTTPS on 30443; both are
+# forwarded from the host in the Vagrantfile.
+su - vagrant -c "helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx || true"
+su - vagrant -c "helm repo update"
+su - vagrant -c "helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+  --namespace ingress-nginx --create-namespace \
+  --set controller.service.type=NodePort \
+  --set controller.service.nodePorts.http=30080 \
+  --set controller.service.nodePorts.https=30443 \
+  --set controller.admissionWebhooks.enabled=false"
+# No --wait: at this point only cp1 exists and its control-plane taint prevents
+# the ingress pod from scheduling.  It will start once a worker joins.
+
+# Install ArgoCD via Helm using the project values file.
+# The server runs with --insecure so nginx can proxy it over plain HTTP;
+# outer TLS is handled by Cloudflare Tunnel (or cert-manager later).
+su - vagrant -c "helm repo add argo https://argoproj.github.io/argo-helm || true"
+su - vagrant -c "helm repo update"
+su - vagrant -c "helm upgrade --install argocd argo/argo-cd \
+  --namespace argocd --create-namespace \
+  -f /vagrant/helm/argocd-values.yaml"
+# No --wait: same reason as ingress-nginx above.
+# The Application CRD is registered by Helm synchronously before any pods
+# start, so we just wait for that rather than for all pods to be ready.
+echo "Waiting for ArgoCD Application CRD to be registered..."
+until su - vagrant -c "kubectl get crd applications.argoproj.io >/dev/null 2>&1"; do
+  sleep 3
+done
+
 # Generate join script
 kubeadm token create --print-join-command >"${JOIN_SCRIPT}"
 chmod +x "${JOIN_SCRIPT}"
