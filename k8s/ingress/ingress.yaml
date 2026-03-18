@@ -17,7 +17,7 @@ spec:
   #     secretName: db-app-tls
   rules:
     # Named-host rule: used when accessed via the real domain (Cloudflare Tunnel).
-    - host: app.example.com
+    - host: project.beckersd.com
       http:
         paths:
           - path: /api

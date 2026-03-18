@@ -71,6 +71,13 @@ set +e
 kubectl apply -f "$K8S_DIR/monitoring/service-monitor.yaml" || echo "Skipping ServiceMonitor creation; monitoring CRDs not found."
 set -e
 
+echo "Deploying Cloudflare Tunnel..."
+# The cloudflared deployment creates a Secret with the tunnel token and runs
+# the cloudflared agent that connects back to Cloudflare.  Traffic arriving
+# at project.beckersd.com is routed by Cloudflare to this pod, which then
+# forwards it to the nginx ingress controller inside the cluster.
+kubectl apply -f "$K8S_DIR/cloudflared/deployment.yaml"
+
 echo "Creating ArgoCD application..."
 # The ArgoCD Application CRD may not be installed in all clusters.  If the
 # CRDs are missing (e.g. when ArgoCD is not deployed), attempting to

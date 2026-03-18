@@ -29,7 +29,7 @@ server:
     enabled: true
     ingressClassName: nginx
     hosts:
-      - argocd.example.com   # Replace with your real domain
+      - argocd.beckersd.com
     annotations:
       nginx.ingress.kubernetes.io/ssl-redirect: "false"
       nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
