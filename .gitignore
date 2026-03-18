@@ -1,1 +1,2 @@
 /.vagrant
+/k8s/secret.example.yaml
