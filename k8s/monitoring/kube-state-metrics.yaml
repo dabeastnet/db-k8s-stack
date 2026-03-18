@@ -80,7 +80,7 @@ subjects:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: kube-state-metrics
+  name: db-kube-state-metrics
   namespace: monitoring
   labels:
     app: kube-state-metrics

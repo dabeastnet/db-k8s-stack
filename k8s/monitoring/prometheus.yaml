@@ -138,7 +138,7 @@ subjects:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: prometheus
+  name: db-prometheus
   namespace: monitoring
   labels:
     app: prometheus
@@ -184,10 +184,11 @@ metadata:
   labels:
     app: prometheus
 spec:
-  type: ClusterIP
+  type: NodePort
   ports:
     - name: web
       port: 9090
       targetPort: web
+      nodePort: 30090
   selector:
     app: prometheus

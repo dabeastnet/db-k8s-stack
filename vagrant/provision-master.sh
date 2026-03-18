@@ -51,3 +51,9 @@ su - vagrant -c "kubectl apply -f ${K8S_DIR}/frontend/service.yaml"
 su - vagrant -c "kubectl apply -f ${K8S_DIR}/frontend/deployment.yaml"
 # Ingress
 su - vagrant -c "kubectl apply -f ${K8S_DIR}/ingress/ingress.yaml"
+
+# Deploy optional components from the repo root so relative paths resolve correctly
+if [ -f /vagrant/deploy-k8s.sh ]; then
+  echo "Running deploy-k8s.sh to install optional components..."
+  su - vagrant -c "cd /vagrant && chmod +x ./deploy-k8s.sh && ./deploy-k8s.sh"
+fi
