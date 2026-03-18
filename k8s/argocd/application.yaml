@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/your-user/db-k8s-stack.git  # Replace with your repository URL
+    repoURL: https://github.com/dabeastnet/db-k8s-stack.git  # Replace with your repository URL
     targetRevision: HEAD
     path: k8s
   destination:

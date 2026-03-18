@@ -125,14 +125,14 @@ metadata:
   name: db-prometheus
   labels:
     app: db-prometheus
-  roleRef:
-    apiGroup: rbac.authorization.k8s.io
-    kind: ClusterRole
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: db-prometheus
+subjects:
+  - kind: ServiceAccount
     name: db-prometheus
-  subjects:
-    - kind: ServiceAccount
-      name: db-prometheus
-      namespace: monitoring
+    namespace: monitoring
 
 ---
 apiVersion: apps/v1
