@@ -25,6 +25,14 @@ chown vagrant:vagrant /home/vagrant/.kube/config
 # Install Flannel CNI plugin
 su - vagrant -c "kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml"
 
+# Vagrant VMs have two NICs: enp0s3 (NAT, 10.0.2.x) and enp0s8 (private, 192.168.56.x).
+# Flannel picks enp0s3 by default, which means VXLAN tunnels are built over the NAT
+# interface -- cross-node pod traffic never reaches the other VM, breaking DNS and
+# all cross-node communication.  Patch the DaemonSet to bind to enp0s8 instead.
+su - vagrant -c "kubectl patch daemonset kube-flannel-ds -n kube-flannel --type=json \
+  -p='[{\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/args/-\",\"value\":\"--iface=enp0s8\"}]'"
+su - vagrant -c "kubectl rollout status daemonset kube-flannel-ds -n kube-flannel --timeout=120s"
+
 # Generate join script
 kubeadm token create --print-join-command >"${JOIN_SCRIPT}"
 chmod +x "${JOIN_SCRIPT}"

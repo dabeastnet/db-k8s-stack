@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls C:\\\\Users\\\\Dieter\\\\OneDrive - Thomas More\\\\Linux Web & Network Services\\\\db-k8s-stack\\\\k8s:*)",
+      "Bash(vagrant ssh:*)",
+      "Bash(ls C:\\\\Users\\\\Dieter\\\\OneDrive - Thomas More\\\\Linux Web & Network Services\\\\db-k8s-stack\\\\k8s\\\\postgres:*)",
+      "Bash(ls C:\\\\Users\\\\Dieter\\\\OneDrive - Thomas More\\\\Linux Web & Network Services\\\\db-k8s-stack\\\\api:*)",
+      "Bash(ls C:\\\\Users\\\\Dieter\\\\OneDrive - Thomas More\\\\Linux Web & Network Services\\\\db-k8s-stack\\\\vagrant:*)",
+      "Bash(cd \"/c/Users/Dieter/OneDrive - Thomas More/Linux Web & Network Services/db-k8s-stack\" && vagrant status 2>&1)",
+      "Bash(cd \"/c/Users/Dieter/OneDrive - Thomas More/Linux Web & Network Services/db-k8s-stack\" && vagrant up worker2 2>&1)"
+    ]
+  }
+}

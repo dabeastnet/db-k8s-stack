@@ -60,6 +60,19 @@ spec:
                 secretKeyRef:
                   name: db-app-secret
                   key: DB_PASSWORD
+            #
+            # Provide PGPASSWORD to libpq-based clients such as pg_isready.  The
+            # db-api container’s entrypoint script uses pg_isready to wait for
+            # PostgreSQL.  Without a password, pg_isready will fail against a
+            # password‑protected database, causing the container to loop
+            # indefinitely and fail its startup probe.  Setting PGPASSWORD via
+            # the secret ensures pg_isready can authenticate and the API starts
+            # successfully.
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-app-secret
+                  key: DB_PASSWORD
             - name: POD_NAME
               valueFrom:
                 fieldRef:
