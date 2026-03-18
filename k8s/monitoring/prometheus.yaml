@@ -25,10 +25,10 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: prometheus-config
+  name: db-prometheus-config
   namespace: monitoring
   labels:
-    app: prometheus
+    app: db-prometheus
     app.kubernetes.io/component: server
 data:
   prometheus.yml: |
@@ -52,7 +52,7 @@ data:
       - job_name: node-exporter
         static_configs:
           - targets:
-              - node-exporter.monitoring.svc.cluster.local:9100
+              - db-node-exporter.monitoring.svc.cluster.local:9100
 
       # Scrape the db-api service for application metrics.  The ``db-api``
       # Deployment exposes metrics at ``/metrics`` on port 8000.  Service
@@ -95,18 +95,18 @@ data:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: prometheus
+  name: db-prometheus
   namespace: monitoring
   labels:
-    app: prometheus
+    app: db-prometheus
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: prometheus
+  name: db-prometheus
   labels:
-    app: prometheus
+    app: db-prometheus
 rules:
   # Allow Prometheus to discover nodes, pods, services and endpoints.
   - apiGroups: ['']
@@ -122,17 +122,17 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: prometheus
+  name: db-prometheus
   labels:
-    app: prometheus
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: prometheus
-subjects:
-  - kind: ServiceAccount
-    name: prometheus
-    namespace: monitoring
+    app: db-prometheus
+  roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: ClusterRole
+    name: db-prometheus
+  subjects:
+    - kind: ServiceAccount
+      name: db-prometheus
+      namespace: monitoring
 
 ---
 apiVersion: apps/v1
@@ -142,18 +142,18 @@ metadata:
   name: db-prometheus
   namespace: monitoring
   labels:
-    app: prometheus
+    app: db-prometheus
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: prometheus
+      app: db-prometheus
   template:
     metadata:
       labels:
-        app: prometheus
+        app: db-prometheus
     spec:
-      serviceAccountName: prometheus
+      serviceAccountName: db-prometheus
       containers:
         - name: prometheus
           image: prom/prometheus:v2.47.2
@@ -172,7 +172,7 @@ spec:
       volumes:
         - name: config-volume
           configMap:
-            name: prometheus-config
+            name: db-prometheus-config
         - name: data-volume
           emptyDir: {}
 
@@ -180,10 +180,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: prometheus
+  name: db-prometheus
   namespace: monitoring
   labels:
-    app: prometheus
+    app: db-prometheus
 spec:
   # Expose Prometheus via a NodePort so it can be accessed from outside the
   # cluster without requiring a kubectl port-forward.  The Vagrantfile will
@@ -197,4 +197,4 @@ spec:
       # be forwarded in the Vagrantfile to the host for convenience.
       nodePort: 30090
   selector:
-    app: prometheus
+    app: db-prometheus

@@ -75,7 +75,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: node-exporter
+  name: db-node-exporter
   namespace: monitoring
   labels:
     app: node-exporter
