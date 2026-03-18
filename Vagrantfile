@@ -21,7 +21,9 @@ Vagrant.configure("2") do |config|
     # frontend on port 30080 on each node.  Expose it on port 18080 on
     # your host machine so you can access the application at
     # http://localhost:18080 without running `kubectl port-forward`.
-    master.vm.network "forwarded_port", guest: 30080, host: 18080, auto_correct: true
+    # master.vm.network "forwarded_port", guest: 30080, host: 18080, auto_correct: true
+    master.vm.network "forwarded_port", guest: 8080, host: 18080, auto_correct: true
+
 
     # Forward the Prometheus web UI from the control plane node to the host.
     # Prometheus runs in the monitoring namespace and is exposed on port 9090
@@ -36,7 +38,8 @@ Vagrant.configure("2") do |config|
     # the cluster.  Forwarding the NodePort here allows you to access the
     # Prometheus dashboard at http://localhost:19090 without running kubectl
     # port-forward manually.
-    master.vm.network "forwarded_port", guest: 30090, host: 19090, auto_correct: true
+    # master.vm.network "forwarded_port", guest: 30090, host: 19090, auto_correct: true
+    master.vm.network "forwarded_port", guest: 9090, host: 19090, auto_correct: true
     master.vm.provider "virtualbox" do |vb|
       vb.memory = 4096
       vb.cpus = 2
