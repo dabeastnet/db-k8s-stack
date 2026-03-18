@@ -150,8 +150,8 @@ No Vagrant required:
 ```bash
 ./build.sh
 docker compose up --build
-# Frontend: http://localhost:8080
-# API:      http://localhost:8000
+# Frontend: http://localhost:18080
+# API:      http://localhost:18000
 ```
 
 See [LOCAL_TESTING.md](LOCAL_TESTING.md) for full test steps including name updates and auto-refresh.
@@ -228,6 +228,180 @@ kubectl -n argocd get secret argocd-initial-admin-secret \
 ```
 
 Excludes `.git`, `*.pyc`, `__pycache__`, and `vendor/`.
+
+## Scripts reference
+
+All scripts live in the repository root and are designed to be run from there. On Windows hosts, run them inside a Vagrant VM or WSL — the VirtualBox synced folder mounts with `noexec`, so call them via `bash ./script.sh` rather than `./script.sh`.
+
+### `build.sh`
+
+Builds both container images locally using Docker.
+
+```bash
+./build.sh
+```
+
+- Builds `db-frontend:latest` from `./frontend`
+- Builds `db-api:latest` from `./api`
+- Exits immediately on any error (`set -e`)
+
+**When to use**: Before running Docker Compose locally, or before pushing images to a registry.
+
+---
+
+### `push.sh`
+
+Tags the locally built images and pushes them to a container registry.
+
+```bash
+export REGISTRY=ghcr.io/dabeastnet
+./push.sh
+```
+
+**Environment variable**:
+
+| Variable | Required | Example | Description |
+|----------|----------|---------|-------------|
+| `REGISTRY` | Yes | `ghcr.io/dabeastnet` | Registry prefix applied to both image names |
+
+The script tags `db-frontend:latest` → `$REGISTRY/db-frontend:latest` and `db-api:latest` → `$REGISTRY/db-api:latest`, then pushes both. Exits with an error message if `REGISTRY` is not set.
+
+**Note**: The Kubernetes Deployments currently reference versioned tags (`db-api:v6`, `db-frontend:v3`). After pushing with `push.sh`, update the image fields in `k8s/api/deployment.yaml` and `k8s/frontend/deployment.yaml` to match the new tag, then commit and push so ArgoCD syncs the change.
+
+---
+
+### `deploy-k8s.sh`
+
+Applies all Kubernetes manifests to the current `kubectl` context in dependency order.
+
+```bash
+./deploy-k8s.sh
+```
+
+No environment variables required — `kubectl` must be configured and pointing at the target cluster.
+
+**Order of operations**:
+
+| Step | Manifest(s) | Notes |
+|------|------------|-------|
+| 1 | `namespace.yaml` | Creates `db-stack` namespace |
+| 2 | `secret.example.yaml`, `configmap.yaml` | Credentials template + DB config |
+| 3 | `postgres/postgres.yaml` | PV, PVC, StatefulSet, Service |
+| 4 | `api/deployment.yaml`, `api/service.yaml` | API Deployment + ClusterIP |
+| 5 | `frontend/deployment.yaml`, `frontend/service.yaml` | Frontend Deployment + ClusterIP |
+| 6 | `cert-manager/clusterissuer.yaml` | Non-fatal — skipped if cert-manager CRDs absent |
+| 7 | `ingress/ingress.yaml` | nginx Ingress rules |
+| 8 | `monitoring/namespace.yaml` + stack | Prometheus, Grafana, exporters |
+| 9 | `monitoring/service-monitor.yaml` | Non-fatal — skipped if Prometheus Operator CRDs absent |
+| 10 | `cloudflared/deployment.yaml` | Cloudflare Tunnel Secret + Deployment |
+| 11 | `argocd/application.yaml` | Non-fatal — skipped if ArgoCD CRDs absent |
+
+The script uses an absolute path derived from its own location (`SCRIPT_DIR`) so it works correctly when called by Vagrant provisioners from any working directory.
+
+---
+
+### `deploy-local.sh`
+
+Starts the Docker Compose stack (builds images first).
+
+```bash
+./deploy-local.sh
+```
+
+Equivalent to `docker compose up --build`. Runs in the foreground; press `Ctrl+C` to stop.
+
+---
+
+### `test-local.sh`
+
+Smoke-tests the Docker Compose stack by hitting all API endpoints and the frontend.
+
+```bash
+./test-local.sh
+```
+
+**Environment variables** (all optional):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `API_URL` | `http://localhost:18000` | Base URL for API requests |
+| `FRONTEND_URL` | `http://localhost:18080` | Base URL for frontend requests |
+
+**Tests performed**:
+
+1. `GET /api/name` — prints the JSON response
+2. `GET /api/container-id` — prints container identity
+3. `GET /healthz` — liveness check
+4. `GET /readyz` — readiness check (runs `SELECT 1`)
+5. `GET /metrics` — first 5 lines of Prometheus exposition
+6. Frontend root — first 10 lines of HTML
+
+No assertions are made; review the printed output to verify correctness.
+
+---
+
+### `test-k8s.sh`
+
+Smoke-tests a running Kubernetes deployment by port-forwarding services and hitting all endpoints.
+
+```bash
+./test-k8s.sh
+```
+
+**Environment variables** (all optional):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NAMESPACE` | `db-stack` | Kubernetes namespace to target |
+
+**What it does**:
+
+1. Port-forwards `svc/db-api` → `localhost:18000` in the background
+2. Port-forwards `svc/db-frontend` → `localhost:18080` in the background
+3. Waits 5 seconds for the tunnels to open
+4. Exercises the same endpoints as `test-local.sh`
+5. Kills both port-forward processes on completion
+
+Run from any machine with `kubectl` configured to point at the cluster.
+
+---
+
+### `package.sh`
+
+Creates a ZIP archive of the repository for submission.
+
+```bash
+./package.sh
+# Produces: db-k8s-stack.zip
+```
+
+**Exclusions** (not included in the archive):
+
+| Pattern | Reason |
+|---------|--------|
+| `*.git*` | Version control metadata not needed for submission |
+| `db-k8s-stack.zip` | Prevents the archive from including itself |
+| `vendor/*` | Third-party dependencies managed separately |
+| `node_modules/*` | JavaScript dependencies not present but excluded as a precaution |
+| `*.pyc`, `__pycache__/*` | Python bytecode |
+
+---
+
+### `docker-compose.yml`
+
+Defines the local development stack (not a script, but used by `deploy-local.sh` and `test-local.sh`):
+
+| Service | Image | Host port | Container port | Notes |
+|---------|-------|-----------|----------------|-------|
+| `db-postgres` | `postgres:16-alpine` | — | 5432 | Internal only; no host port exposed |
+| `db-api` (service `api`) | built from `./api` | `18000` | `8000` | Directly reachable for testing |
+| `db-frontend` | built from `./frontend` | `18080` | `8080` | Apache serving the SPA |
+
+All three services are connected on a `demo` bridge network. PostgreSQL data is persisted in a named volume `db-data`. The API's `depends_on: db-postgres` ensures Compose starts the DB first, but the entrypoint's `pg_isready` poll handles the actual readiness wait.
+
+**Important**: The Apache `httpd.conf` proxies `/api` to `db-api.db-stack.svc.cluster.local` — a Kubernetes-only DNS name. In Docker Compose the proxy target does not resolve, so test the API endpoints directly on port `18000` rather than through the frontend on `18080`.
+
+---
 
 ## Requirement-to-implementation mapping
 

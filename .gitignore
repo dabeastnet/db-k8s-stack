@@ -1,2 +1,3 @@
 /.vagrant
 /k8s/secret.example.yaml
+/k8s/cloudflared/deployment.yaml

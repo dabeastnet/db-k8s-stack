@@ -3,8 +3,8 @@
 
 set -e
 
-API_URL=${API_URL:-http://localhost:8000}
-FRONTEND_URL=${FRONTEND_URL:-http://localhost:8080}
+API_URL=${API_URL:-http://localhost:18000}
+FRONTEND_URL=${FRONTEND_URL:-http://localhost:18080}
 
 echo "Testing API /api/name endpoint..."
 resp_name=$(curl -s "$API_URL/api/name")

@@ -2,47 +2,137 @@
 
 ## Purpose
 
-The `frontend` component is a static web server based on Apache HTTPD. It serves a single-page HTML/JavaScript application that displays a greeting with the user's name and the current API container ID, both fetched live from the FastAPI backend.
+The `frontend` component is a static web server built on Apache HTTPD. It serves a single-page HTML/JavaScript application that displays a greeting with the user's name and the current API container ID, both fetched live from the FastAPI backend. It also implements the automatic layout refresh requirement by polling a version file.
 
-## What this component does
+## Directory structure
 
-- Serves `index.html` from Apache HTTPD on port 8080
-- The JavaScript page fetches `/api/name` and `/api/container-id` on load and updates the DOM
-- Polls `version.txt` every 15 seconds; if the version string changes, the page auto-reloads — this implements the "automatic layout refresh" requirement
-- In Kubernetes, Apache proxies `/api` requests to the internal `db-api` service (not used in production ingress path, but available as a fallback)
+```
+frontend/
+├── Dockerfile                  Container image definition
+├── apache/
+│   └── httpd.conf              Custom Apache configuration (minimal modules, non-root port)
+├── src/
+│   └── index.html              Single-page app with inline JavaScript
+└── static/
+    └── version.txt             Version string for triggering automatic page reload (default: "1")
+```
 
-## Key files
+## How it works
 
-| File | Purpose |
-|------|---------|
-| `Dockerfile` | Based on `httpd:2.4-alpine`; copies config and static files; creates non-root `appuser` (UID 1001) |
-| `apache/httpd.conf` | Minimal Apache config: loads only required modules, listens on port 8080, proxies `/api` to `db-api.db-stack.svc.cluster.local`, disables directory listing |
-| `src/index.html` | Single HTML page with inline JavaScript; fetches name and container ID, runs version polling loop |
-| `static/version.txt` | Plain-text version string (default: `1`); increment to trigger a client-side page reload |
+### Page load
 
-## How the auto-refresh works
+When a browser opens the page, `index.html` runs two `async` fetch calls in parallel:
 
-The JavaScript in `index.html` calls `checkVersion()` every 15 seconds. It fetches `/version.txt` with a cache-busting query string, compares it to the previously seen value, and calls `location.reload()` if it has changed. To trigger a reload across all browser sessions, rebuild the image with a different `version.txt` content and redeploy the frontend.
+1. `GET /api/name` → updates the `<span id="user">` element with the name from the database
+2. `GET /api/container-id` → updates `<span id="containerId">` with the container ID
+
+Both elements show `Loading…` while the fetches are in-flight and `Unavailable` if they fail.
+
+### Automatic layout refresh
+
+After initial load, the JavaScript calls `checkVersion()` and then repeats it every 15 seconds:
+
+```javascript
+async function checkVersion() {
+    const res = await fetch('/version.txt?_t=' + new Date().getTime());
+    const versionText = (await res.text()).trim();
+    if (window.currentVersion && window.currentVersion !== versionText) {
+        location.reload();
+        return;
+    }
+    window.currentVersion = versionText;
+}
+```
+
+The cache-busting query string (`?_t=<timestamp>`) prevents the browser from returning a cached copy. If the version string changes between polls, the page reloads immediately. This satisfies the "automatic layout refresh when the page changes" requirement.
+
+To trigger a reload: update `frontend/static/version.txt`, rebuild the image, and redeploy the container.
+
+## Apache configuration (`apache/httpd.conf`)
+
+Key settings:
+
+| Setting | Value | Reason |
+|---------|-------|--------|
+| `Listen` | `8080` | Non-root users cannot bind to ports below 1024 |
+| `PidFile` | `/tmp/httpd.pid` | Writable by non-root user |
+| `ServerName` | `localhost` | Suppresses "could not determine FQDN" warning |
+| `Options -Indexes` | enabled | Disables directory listing |
+| `ErrorLog` | `/proc/self/fd/2` | Logs to container stderr |
+| `CustomLog` | `/proc/self/fd/1` | Logs to container stdout |
+
+Loaded modules (minimal set): `mpm_event`, `authn_core`, `authz_core`, `access_compat`, `alias`, `dir`, `log_config`, `mime`, `unixd`, `proxy`, `proxy_http`.
+
+The Apache reverse proxy configuration forwards `/api` requests to the internal Kubernetes DNS name:
+
+```apache
+ProxyPreserveHost On
+ProxyPass        "/api"  "http://db-api.db-stack.svc.cluster.local:80/api"
+ProxyPassReverse "/api"  "http://db-api.db-stack.svc.cluster.local:80/api"
+ProxyPass        "/api/" "http://db-api.db-stack.svc.cluster.local:80/api/"
+ProxyPassReverse "/api/" "http://db-api.db-stack.svc.cluster.local:80/api/"
+```
+
+> **Note**: This proxy target only resolves inside the Kubernetes cluster. In Docker Compose, the browser's JavaScript makes `fetch` calls directly to `/api/...`, which Apache proxies — but the Kubernetes DNS name does not exist in Docker Compose. In practice, when running with Docker Compose and accessing the frontend from a browser on the host, the JavaScript `fetch('/api/name')` hits the Apache server, which tries to proxy it to the K8s DNS and fails. **For Docker Compose testing, the API endpoints should be tested directly on port 18000.** The full proxy path works only inside the Kubernetes cluster or when accessed through the nginx ingress.
+
+## Dockerfile walkthrough
+
+```dockerfile
+FROM httpd:2.4-alpine
+
+COPY apache/httpd.conf /usr/local/apache2/conf/httpd.conf
+COPY src/ /usr/local/apache2/htdocs/
+COPY static/version.txt /usr/local/apache2/htdocs/version.txt
+
+# Create non-root user and transfer ownership
+RUN addgroup -g 1001 appgroup && adduser -D -u 1001 -G appgroup appuser
+RUN mkdir -p /usr/local/apache2/logs /tmp/apache2
+RUN chown -R appuser:appgroup \
+    /usr/local/apache2/htdocs \
+    /usr/local/apache2/conf \
+    /usr/local/apache2/logs \
+    /tmp/apache2
+
+USER 1001
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s \
+    CMD wget -qO- http://localhost:8080/ || exit 1
+```
+
+Key points:
+- `httpd:2.4-alpine` keeps the image small and reduces attack surface
+- All relevant directories are owned by `appuser` (UID 1001) so Apache can write its PID file and logs
+- A Docker `HEALTHCHECK` is defined (used in Docker Compose; Kubernetes uses its own probes)
 
 ## Container details
 
-- **Base image**: `httpd:2.4-alpine`
-- **Published image**: `ghcr.io/dabeastnet/db-frontend:v3`
-- **Listening port**: `8080`
-- **Run as**: `appuser` UID/GID 1001
-- **Apache PID file**: `/tmp/httpd.pid` (writable by non-root user)
-- **Logs**: stdout/stderr via `/proc/self/fd/1` and `/proc/self/fd/2`
+| Property | Value |
+|----------|-------|
+| Base image | `httpd:2.4-alpine` |
+| Published image | `ghcr.io/dabeastnet/db-frontend:v3` |
+| Listening port | `8080` |
+| Run as | UID 1001 (`appuser`) |
+| Docker Compose host port | `18080` |
 
-## Apache proxy configuration
+## Kubernetes resources (`k8s/frontend/`)
 
-The `httpd.conf` defines a reverse proxy for the API:
+### Deployment (`k8s/frontend/deployment.yaml`)
 
-```apache
-ProxyPass        "/api"  "http://db-api.db-stack.svc.cluster.local:80/api"
-ProxyPassReverse "/api"  "http://db-api.db-stack.svc.cluster.local:80/api"
-```
+- **Replicas**: 1
+- **Security context**: `runAsUser: 1001`, `runAsGroup: 1001`, `fsGroup: 1001`
+- **Readiness probe**: `GET /` on port `http` — initial delay 10 s, period 10 s
+- **Liveness probe**: `GET /` on port `http` — initial delay 20 s, period 20 s
 
-This only resolves inside the Kubernetes cluster. In Docker Compose, the JavaScript makes direct `fetch` calls to `/api/...` which are proxied by Apache — however, the Apache proxy target is the Kubernetes DNS name and will not resolve in Docker Compose. The frontend still works in Docker Compose because the browser's JavaScript calls go to the Docker Compose network-reachable API directly (port 8000 is published at host level). The Apache proxy is a cluster-internal convenience and not used by browsers directly.
+**Resource limits**:
+
+| | CPU | Memory |
+|-|-----|--------|
+| Requests | 50m | 64Mi |
+| Limits | 200m | 256Mi |
+
+### Service (`k8s/frontend/service.yaml`)
+
+ClusterIP service `db-frontend` in `db-stack` namespace. Port 80 → container port 8080. The nginx ingress routes path `/` (with host `project.beckersd.com`) to this service.
 
 ## Building locally
 
@@ -60,28 +150,35 @@ Or from the repo root:
 
 ```bash
 docker compose up --build
-# Access at http://localhost:8080
+# Browser: http://localhost:18080
 ```
 
-See `LOCAL_TESTING.md` for full testing steps.
+Note: in Docker Compose, verify the API separately on http://localhost:18000 because the Apache proxy target (`db-api.db-stack.svc.cluster.local`) does not resolve outside the Kubernetes cluster.
 
-## Updating the layout
+## Updating the layout / triggering auto-reload
 
-To trigger an automatic page reload across all connected browsers:
+1. Make changes to `frontend/src/index.html` (or any static file)
+2. Increment the version string in `frontend/static/version.txt` (e.g. `1` → `2`)
+3. Rebuild and redeploy:
 
-1. Edit `frontend/static/version.txt` (e.g. change `1` to `2`)
-2. Rebuild the image: `docker compose build frontend`
-3. Restart the container: `docker compose up -d frontend`
+   **Docker Compose**:
+   ```bash
+   docker compose build frontend
+   docker compose up -d frontend
+   ```
 
-Within 15 seconds, any open browser tabs will detect the new version and reload.
+   **Kubernetes** (after pushing the new image):
+   ```bash
+   kubectl rollout restart deployment db-frontend -n db-stack
+   ```
+
+Within 15 seconds all open browser tabs will detect the new version and reload automatically.
 
 ## Relationship to other components
 
-- **`api`** — The frontend JavaScript fetches data from the API at runtime. The Apache proxy config routes `/api` server-side, but browsers resolve the API through the nginx ingress.
-- **`k8s/frontend/`** — Kubernetes Deployment and ClusterIP Service manifests.
-- **`k8s/ingress/ingress.yaml`** — The nginx ingress routes `/` to the `db-frontend` service and `/api` to the `db-api` service; this is the path used in production.
-
-## Resource limits (Kubernetes)
-
-- Requests: `50m` CPU / `64Mi` memory
-- Limits: `200m` CPU / `256Mi` memory
+| Component | Relationship |
+|-----------|-------------|
+| `api/` | JavaScript fetches `/api/name` and `/api/container-id` from the API at runtime |
+| `k8s/frontend/` | Kubernetes Deployment and Service manifests |
+| `k8s/ingress/ingress.yaml` | nginx ingress routes `/` (Host: `project.beckersd.com`) to `db-frontend:80` |
+| `docker-compose.yml` | Builds and runs the frontend image on host port 18080 |

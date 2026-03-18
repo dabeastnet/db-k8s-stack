@@ -2,54 +2,55 @@
 
 ## Purpose
 
-This directory contains all Kubernetes manifests for deploying and operating the db-k8s-stack on a kubeadm cluster. Manifests are organised by component and applied by `deploy-k8s.sh` or synchronised automatically by ArgoCD.
+This directory contains all Kubernetes manifests for the db-k8s-stack. Manifests are organised by component and applied in order by `deploy-k8s.sh`, or synchronised automatically from Git by ArgoCD. The stack runs in the `db-stack` namespace; monitoring runs in a separate `monitoring` namespace.
 
 ## Directory structure
 
 ```
 k8s/
-├── namespace.yaml          # db-stack namespace
-├── configmap.yaml          # Non-secret application configuration
-├── secret.example.yaml     # Secret template (do not commit real secrets)
+├── namespace.yaml              db-stack namespace
+├── configmap.yaml              Non-secret DB connection parameters (db-app-config)
+├── secret.example.yaml         Secret template — db-app-secret (do NOT commit real secrets)
 ├── api/
-│   ├── deployment.yaml     # db-api Deployment (2 replicas, spread constraints, probes)
-│   └── service.yaml        # db-api ClusterIP Service (port 80 → container 8000)
+│   ├── deployment.yaml         db-api Deployment: 2 replicas, topology spread, probes, limits
+│   └── service.yaml            db-api ClusterIP Service: port 80 → container 8000
 ├── frontend/
-│   ├── deployment.yaml     # db-frontend Deployment (1 replica, probes)
-│   └── service.yaml        # db-frontend ClusterIP Service (port 80 → container 8080)
+│   ├── deployment.yaml         db-frontend Deployment: 1 replica, probes, limits
+│   └── service.yaml            db-frontend ClusterIP Service: port 80 → container 8080
 ├── postgres/
-│   └── postgres.yaml       # PersistentVolume, PVC, StatefulSet, ClusterIP Service
+│   └── postgres.yaml           PersistentVolume, PVC, StatefulSet, ClusterIP Service
 ├── ingress/
-│   └── ingress.yaml        # nginx Ingress with host rules and catch-all
+│   └── ingress.yaml            nginx Ingress: host rules for project.beckersd.com + catch-all
 ├── cert-manager/
-│   └── clusterissuer.yaml  # Let's Encrypt ClusterIssuers (prod + staging)
+│   └── clusterissuer.yaml      Let's Encrypt ClusterIssuers (prod + staging)
 ├── cloudflared/
-│   └── deployment.yaml     # Cloudflare Tunnel agent + token Secret
+│   └── deployment.yaml         Cloudflare Tunnel Deployment + token Secret
 ├── argocd/
-│   └── application.yaml    # ArgoCD Application (GitOps sync from this repo)
+│   └── application.yaml        ArgoCD Application (GitOps sync from GitHub)
 └── monitoring/
-    ├── namespace.yaml       # monitoring namespace
-    ├── prometheus.yaml      # Prometheus ConfigMap, RBAC, Deployment, NodePort Service
-    ├── kube-state-metrics.yaml  # kube-state-metrics Deployment and Service
-    ├── node-exporter.yaml   # node-exporter DaemonSet (runs on all nodes)
-    ├── grafana.yaml         # Grafana Deployment, ConfigMaps, NodePort Service
-    └── service-monitor.yaml # ServiceMonitor for scraping db-api (Prometheus Operator CRD)
+    └── (see k8s/monitoring/README.md)
 ```
 
 ## Namespaces
 
-| Namespace | Contents |
-|-----------|---------|
-| `db-stack` | Application workloads: frontend, API, PostgreSQL, Cloudflare tunnel |
-| `monitoring` | Prometheus, Grafana, kube-state-metrics, node-exporter |
-| `ingress-nginx` | nginx ingress controller (Helm-managed, release `db-ingress-nginx`) |
-| `argocd` | ArgoCD (Helm-managed, release `db-argocd`) |
+| Namespace | Managed by | Contents |
+|-----------|-----------|---------|
+| `db-stack` | `deploy-k8s.sh` / ArgoCD | frontend, API, PostgreSQL, Cloudflare tunnel |
+| `monitoring` | `deploy-k8s.sh` | Prometheus, Grafana, kube-state-metrics, node-exporter |
+| `ingress-nginx` | Helm (`db-ingress-nginx`) | nginx ingress controller |
+| `argocd` | Helm (`db-argocd`) | ArgoCD components |
 
-## Core application resources
+---
 
-### ConfigMap (`configmap.yaml`)
+## Shared configuration
 
-Provides non-sensitive database connection parameters to the API:
+### `namespace.yaml`
+
+Creates the `db-stack` namespace. Applied first so all subsequent resources can reference it.
+
+### `configmap.yaml` — `db-app-config`
+
+Non-sensitive database connection parameters shared by the API:
 
 | Key | Value |
 |-----|-------|
@@ -57,86 +58,377 @@ Provides non-sensitive database connection parameters to the API:
 | `DB_PORT` | `5432` |
 | `DB_NAME` | `demo` |
 
-### Secret (`secret.example.yaml`)
+### `secret.example.yaml` — `db-app-secret`
 
-Template for the `db-app-secret` Secret. Contains `DB_USER` and `DB_PASSWORD` using `stringData`. **Copy and rename this file; never commit real credentials.**
+Template file showing the structure of the required Secret. Uses `stringData` (Kubernetes base64-encodes it automatically):
 
-Default development values: `demo` / `demo`.
+| Key | Example value |
+|-----|--------------|
+| `DB_USER` | `demo` |
+| `DB_PASSWORD` | `demo` |
 
-### API Deployment (`api/deployment.yaml`)
+**Important**: this file contains only example credentials for development. Never commit real passwords. In `provision-master.sh`, the secret is only applied if `db-app-secret` does not already exist — so you can pre-create it with real credentials before provisioning.
 
-- **Image**: `ghcr.io/dabeastnet/db-api:v6`
-- **Replicas**: 2
-- **Topology spread**: `maxSkew=1` over `kubernetes.io/hostname` ensures one replica per worker node
-- **Startup probe**: `GET /healthz` — up to 300 s grace period
-- **Readiness probe**: `GET /readyz` — fails if PostgreSQL is unreachable
-- **Liveness probe**: `GET /healthz` — triggers restart if the process becomes unresponsive
-- **Security context**: `runAsUser: 1001`, `runAsGroup: 1001`, `fsGroup: 1001`
-- **Env vars**: `DB_*` from ConfigMap/Secret; `POD_NAME` and `HOSTNAME` from downward API
+---
 
-### PostgreSQL (`postgres/postgres.yaml`)
+## API (`api/`)
 
-- **StatefulSet** `db-postgres`: 1 replica, `postgres:16-alpine`
-- **PersistentVolume** `db-postgres-pv`: 1 Gi hostPath at `/mnt/postgres-data` (created by `provision-common.sh`)
-- **PersistentVolumeClaim** `db-postgres-pvc`: binds to the above PV via `storageClassName: manual`
-- **Service** `db-postgres`: ClusterIP on port 5432
+### `api/deployment.yaml`
 
-### Ingress (`ingress/ingress.yaml`)
+**Image**: `ghcr.io/dabeastnet/db-api:v6`
+**Replicas**: 2
+**Namespace**: `db-stack`
+
+#### Topology spread
+
+```yaml
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: DoNotSchedule
+    labelSelector:
+      matchLabels:
+        app: db-api
+```
+
+Ensures exactly one replica lands on each worker node. `DoNotSchedule` means a third replica would remain `Pending` if only two nodes are schedulable — which is intentional since the cluster has exactly two workers.
+
+#### Environment variables
+
+| Variable | Source |
+|----------|--------|
+| `DB_HOST` | `db-app-config` ConfigMap key `DB_HOST` |
+| `DB_PORT` | `db-app-config` ConfigMap key `DB_PORT` |
+| `DB_NAME` | `db-app-config` ConfigMap key `DB_NAME` |
+| `DB_USER` | `db-app-secret` Secret key `DB_USER` |
+| `DB_PASSWORD` | `db-app-secret` Secret key `DB_PASSWORD` |
+| `PGPASSWORD` | `db-app-secret` Secret key `DB_PASSWORD` (duplicate — needed by `pg_isready` in the entrypoint) |
+| `POD_NAME` | Downward API: `metadata.name` (pod name) |
+| `HOSTNAME` | Downward API: `spec.nodeName` (node name — note: overrides the container's `$HOSTNAME`) |
+
+#### Health probes
+
+| Probe | Endpoint | Timing | Behaviour on failure |
+|-------|----------|--------|---------------------|
+| Startup | `GET /healthz` | period=10s, failureThreshold=30 | Pod killed after 300 s if never healthy |
+| Readiness | `GET /readyz` | initialDelay=20s, period=10s | Pod removed from service endpoints; traffic stops |
+| Liveness | `GET /healthz` | initialDelay=60s, period=20s | Pod restarted |
+
+The startup probe gives the API up to 300 seconds to start (covering DB wait + Alembic migration time). Only after the startup probe succeeds does Kubernetes begin evaluating readiness and liveness probes.
+
+`/readyz` runs `SELECT 1` against PostgreSQL. If the DB is unreachable the probe returns 503 and the pod is removed from the load balancer until the DB recovers.
+
+#### Resource limits
+
+| | CPU | Memory |
+|-|-----|--------|
+| Requests | `100m` | `128Mi` |
+| Limits | `500m` | `512Mi` |
+
+#### Security context
+
+```yaml
+securityContext:
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
+```
+
+Matches the `appuser` created in the Dockerfile.
+
+### `api/service.yaml`
+
+```yaml
+kind: Service
+name: db-api
+type: ClusterIP
+port: 80 → targetPort: http (8000)
+```
+
+The nginx ingress routes `path: /api` to `db-api:80`.
+
+---
+
+## Frontend (`frontend/`)
+
+### `frontend/deployment.yaml`
+
+**Image**: `ghcr.io/dabeastnet/db-frontend:v3`
+**Replicas**: 1
+
+#### Health probes
+
+| Probe | Endpoint | Initial delay | Period |
+|-------|----------|--------------|--------|
+| Readiness | `GET /` | 10 s | 10 s |
+| Liveness | `GET /` | 20 s | 20 s |
+
+#### Resource limits
+
+| | CPU | Memory |
+|-|-----|--------|
+| Requests | `50m` | `64Mi` |
+| Limits | `200m` | `256Mi` |
+
+### `frontend/service.yaml`
+
+```yaml
+kind: Service
+name: db-frontend
+type: ClusterIP
+port: 80 → targetPort: http (8080)
+```
+
+The nginx ingress routes `path: /` to `db-frontend:80`.
+
+---
+
+## PostgreSQL (`postgres/postgres.yaml`)
+
+Three resources in one file:
+
+### PersistentVolume `db-postgres-pv`
+
+```yaml
+capacity: 1Gi
+accessModes: [ReadWriteOnce]
+persistentVolumeReclaimPolicy: Retain
+storageClassName: manual
+hostPath: /mnt/postgres-data
+```
+
+`/mnt/postgres-data` is created by `provision-common.sh` on every node. `storageClassName: manual` is a custom label used to bind this PV to its PVC. `Retain` means the data is not deleted when the PVC is removed.
+
+### PersistentVolumeClaim `db-postgres-pvc`
+
+```yaml
+accessModes: [ReadWriteOnce]
+storage: 1Gi
+storageClassName: manual
+```
+
+Binds to `db-postgres-pv`.
+
+### StatefulSet `db-postgres`
+
+- **Image**: `postgres:16-alpine`
+- **Image pull policy**: `IfNotPresent`
+- **Port**: 5432
+- **Security context**: `fsGroup: 999` (PostgreSQL default GID)
+- **Volume mount**: `/var/lib/postgresql/data` ← `db-postgres-pvc`
+- **Env vars**: `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` from ConfigMap/Secret
+
+### Service `db-postgres`
+
+```yaml
+kind: Service
+name: db-postgres
+type: ClusterIP
+port: 5432 → targetPort: 5432
+```
+
+DNS name inside the cluster: `db-postgres.db-stack.svc.cluster.local`. The API uses `DB_HOST=db-postgres` which resolves to this service within the `db-stack` namespace.
+
+---
+
+## Ingress (`ingress/ingress.yaml`)
 
 Uses `ingressClassName: nginx` (served by the `db-ingress-nginx` Helm release).
 
-Two rules are defined:
+```yaml
+annotations:
+  nginx.ingress.kubernetes.io/ssl-redirect: "false"
+  nginx.ingress.kubernetes.io/proxy-body-size: 4m
+```
 
-1. **Named host** `project.beckersd.com` — routes `/api` to `db-api:80` and `/` to `db-frontend:80`
-2. **Catch-all** (no host) — same routing, matches `localhost`, IP addresses, and any unrecognised hostname (used for local access via `http://localhost:18080`)
+### Routing rules
 
-TLS is commented out pending cert-manager activation.
+**Rule 1 — named host `project.beckersd.com`** (used via Cloudflare Tunnel):
 
-### Cloudflare Tunnel (`cloudflared/deployment.yaml`)
+| Path | PathType | Backend |
+|------|----------|---------|
+| `/api` | Prefix | `db-api:80` |
+| `/` | Prefix | `db-frontend:80` |
 
-- **Secret** `db-cloudflared-token` — stores the Cloudflare Tunnel token
-- **Deployment** `db-cloudflared` — runs `cloudflare/cloudflared:latest` with `tunnel --no-autoupdate run`; reads the token from the Secret via the `TUNNEL_TOKEN` environment variable
-- The tunnel connects outbound to Cloudflare; traffic routing (`project.beckersd.com` → nginx ingress) is configured in the Cloudflare Zero Trust dashboard
+**Rule 2 — catch-all (no host)** (used for local access via `localhost:18080`):
 
-### cert-manager (`cert-manager/clusterissuer.yaml`)
+| Path | PathType | Backend |
+|------|----------|---------|
+| `/api` | Prefix | `db-api:80` |
+| `/` | Prefix | `db-frontend:80` |
 
-Defines two `ClusterIssuer` resources for Let's Encrypt:
+The catch-all rule matches requests with any `Host` header (including `localhost`, IP addresses, and unknown hostnames). This is what makes `http://localhost:18080` work in the Vagrant environment without setting a custom Host header.
 
-| Issuer | Server | Use |
-|--------|--------|-----|
-| `letsencrypt-prod` | `https://acme-v02.api.letsencrypt.org/directory` | Production certificates |
-| `letsencrypt-staging` | `https://acme-staging-v02.api.letsencrypt.org/directory` | Testing (no rate limits) |
+### TLS (commented out)
 
-**Before use**: update `spec.acme.email` in `clusterissuer.yaml` to a real email address. Also uncomment the TLS section in `ingress/ingress.yaml` and add the `cert-manager.io/cluster-issuer` annotation.
+The TLS section and the `cert-manager.io/cluster-issuer` annotation are commented out. To enable HTTPS via cert-manager:
 
-Requires cert-manager CRDs to be installed; the apply is wrapped in a non-fatal block in `deploy-k8s.sh`.
+1. Install cert-manager and apply `k8s/cert-manager/clusterissuer.yaml`
+2. Uncomment the TLS block and `cert-manager.io/cluster-issuer: letsencrypt-prod` annotation
+3. Change `ssl-redirect` to `"true"`
 
-### ArgoCD Application (`argocd/application.yaml`)
+---
 
-Declares the `db-app` ArgoCD Application:
+## cert-manager (`cert-manager/clusterissuer.yaml`)
 
-- **Source**: `https://github.com/dabeastnet/db-k8s-stack.git`, path `k8s/`, branch `HEAD`
-- **Destination**: `https://kubernetes.default.svc`, namespace `db-stack`
-- **Sync policy**: automated with `prune: true` and `selfHeal: true`
+Two `ClusterIssuer` resources for Let's Encrypt ACME:
 
-Apply this manifest after ArgoCD is running to activate the GitOps workflow:
+| Resource | ACME server | Use |
+|----------|-------------|-----|
+| `letsencrypt-prod` | `acme-v02.api.letsencrypt.org` | Real certificates (rate-limited) |
+| `letsencrypt-staging` | `acme-staging-v02.api.letsencrypt.org` | Test certificates (no rate limits) |
 
+Both use HTTP-01 challenge class with `ingressClass: nginx`.
+
+**Before use**:
+1. Replace `admin@example.com` with a real email address in both issuers
+2. Install cert-manager CRDs: `helm install cert-manager jetstack/cert-manager --set installCRDs=true`
+3. Apply this file: `kubectl apply -f k8s/cert-manager/clusterissuer.yaml`
+
+The apply in `deploy-k8s.sh` is wrapped in a non-fatal block and silently skipped if the CRDs are not installed.
+
+---
+
+## Cloudflare Tunnel (`cloudflared/deployment.yaml`)
+
+### Secret `db-cloudflared-token`
+
+Stores the Cloudflare Tunnel token in the `db-stack` namespace:
+
+```yaml
+kind: Secret
+name: db-cloudflared-token
+stringData:
+  token: "<tunnel-token>"
+```
+
+### Deployment `db-cloudflared`
+
+- **Image**: `cloudflare/cloudflared:latest`
+- **Replicas**: 1
+- **Namespace**: `db-stack`
+- **Command**: `tunnel --no-autoupdate run`
+- **Token**: injected via `TUNNEL_TOKEN` environment variable from the Secret
+
+The pod maintains a persistent outbound connection to Cloudflare's network. Incoming requests for `project.beckersd.com` and `argocd.beckersd.com` are tunnelled to this pod, which forwards them to `db-ingress-nginx-controller.ingress-nginx.svc.cluster.local` (configured in the Cloudflare dashboard, not in these manifests).
+
+**Resource limits**:
+
+| | CPU | Memory |
+|-|-----|--------|
+| Requests | `50m` | `64Mi` |
+| Limits | `200m` | `128Mi` |
+
+---
+
+## ArgoCD Application (`argocd/application.yaml`)
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: db-app
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/dabeastnet/db-k8s-stack.git
+    targetRevision: HEAD
+    path: k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: db-stack
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+```
+
+**What each field does**:
+
+| Field | Value | Effect |
+|-------|-------|--------|
+| `repoURL` | GitHub repo URL | ArgoCD polls this repository |
+| `targetRevision` | `HEAD` | Always tracks the latest commit on the default branch |
+| `path` | `k8s` | Only manifests in the `k8s/` subdirectory are applied |
+| `destination.server` | `https://kubernetes.default.svc` | In-cluster deployment |
+| `destination.namespace` | `db-stack` | Default namespace for resources that don't specify one |
+| `automated.prune` | `true` | Resources deleted from Git are also deleted from the cluster |
+| `automated.selfHeal` | `true` | Manual changes to the cluster are reverted to match Git |
+| `CreateNamespace` | `true` | ArgoCD creates the `db-stack` namespace if it doesn't exist |
+
+**Apply this manifest** once after provisioning to activate GitOps:
 ```bash
 kubectl apply -f k8s/argocd/application.yaml
 ```
 
+ArgoCD checks for changes approximately every 3 minutes. To trigger an immediate sync:
+```bash
+kubectl -n argocd patch app db-app -p '{"operation": {"sync": {}}}' --type merge
+```
+
+---
+
 ## Deploying
 
-Use the provided script from the repository root:
+Use the deploy script from the repository root:
 
 ```bash
 ./deploy-k8s.sh
 ```
 
-This applies all manifests in the correct order: namespace → secrets/configmap → postgres → api → frontend → cert-manager (optional) → ingress → monitoring → cloudflared → argocd application.
+Order of operations in `deploy-k8s.sh`:
+
+1. `namespace.yaml`
+2. `secret.example.yaml` + `configmap.yaml`
+3. `postgres/postgres.yaml`
+4. `api/deployment.yaml` + `api/service.yaml`
+5. `frontend/deployment.yaml` + `frontend/service.yaml`
+6. `cert-manager/clusterissuer.yaml` (non-fatal — skipped if CRDs absent)
+7. `ingress/ingress.yaml`
+8. `monitoring/namespace.yaml` + monitoring stack
+9. `monitoring/service-monitor.yaml` (non-fatal — skipped if CRDs absent)
+10. `cloudflared/deployment.yaml`
+11. `argocd/application.yaml` (non-fatal — skipped if ArgoCD CRDs absent)
+
+---
+
+## Useful kubectl commands
+
+```bash
+# Check all resources in the application namespace
+kubectl get all -n db-stack
+
+# Watch pod status
+kubectl get pods -n db-stack -w
+
+# Verify API replicas are spread across nodes
+kubectl get pods -n db-stack -l app=db-api -o wide
+
+# Check ingress
+kubectl get ingress -n db-stack
+
+# View API logs
+kubectl logs -n db-stack -l app=db-api --tail=50
+
+# Describe a crashing pod
+kubectl describe pod -n db-stack <pod-name>
+
+# Check ArgoCD sync status
+kubectl get application -n argocd db-app
+
+# Check Cloudflare tunnel logs
+kubectl logs -n db-stack -l app=db-cloudflared --tail=20
+```
 
 ## Relationship to other components
 
-- **`vagrant/`** — The Vagrant provisioner (`provision-master.sh`) calls `deploy-k8s.sh` automatically after cluster initialisation.
-- **`helm/`** — The Helm-managed components (ingress-nginx, ArgoCD) are installed by `provision-master.sh` before these manifests are applied.
-- **`api/`** and **`frontend/`** — Source code for the images referenced in the Deployments.
+| Component | Relationship |
+|-----------|-------------|
+| `vagrant/provision-master.sh` | Calls `deploy-k8s.sh` automatically during cluster provisioning |
+| `helm/` | Helm releases (`db-ingress-nginx`, `db-argocd`) must be installed before these manifests |
+| `api/` | Source code and Dockerfile for the `db-api` image |
+| `frontend/` | Source code and Dockerfile for the `db-frontend` image |
+| `k8s/monitoring/` | Monitoring stack (see dedicated README) |

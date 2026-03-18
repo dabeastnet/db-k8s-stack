@@ -38,7 +38,7 @@ Open a new terminal or use a REST client such as `curl` or Postman to test the e
 
 ### Frontend
 
-Navigate to http://localhost:8080 in your browser.  You should see a welcome message similar to:
+Navigate to http://localhost:18080 in your browser.  You should see a welcome message similar to:
 
 ```
 Welcome, Dieter Beckers!
@@ -47,19 +47,21 @@ API Container ID: 123456789abc
 
 The name and container ID are fetched asynchronously from the API.  If either value fails to load, check the API container logs (`docker compose logs api`).
 
+> **Note**: The Apache frontend proxies `/api` requests to `db-api.db-stack.svc.cluster.local` — a Kubernetes-internal DNS name. This address does not resolve in Docker Compose. The JavaScript `fetch('/api/name')` call hits Apache, which tries to proxy it to the K8s cluster and fails. For Docker Compose testing, use the API endpoints directly on port `18000` as shown below.
+
 ### API endpoints
 
 * **Get the current name**:
 
   ```bash
-  curl -s http://localhost:8000/api/name | jq
+  curl -s http://localhost:18000/api/name | jq
   # { "name": "Dieter Beckers" }
   ```
 
 * **Get the container ID**:
 
   ```bash
-  curl -s http://localhost:8000/api/container-id | jq
+  curl -s http://localhost:18000/api/container-id | jq
   # { "container_id": "abcd1234ef56", "pod_name": "db-api", "hostname": "db-api" }
   ```
 
@@ -68,10 +70,10 @@ The name and container ID are fetched asynchronously from the API.  If either va
 * **Health and readiness probes**:
 
   ```bash
-  curl -s http://localhost:8000/healthz
+  curl -s http://localhost:18000/healthz
   # { "status": "ok" }
 
-  curl -s http://localhost:8000/readyz
+  curl -s http://localhost:18000/readyz
   # { "status": "ok" }
   ```
 
@@ -80,7 +82,7 @@ The name and container ID are fetched asynchronously from the API.  If either va
 * **Metrics**:
 
   ```bash
-  curl -s http://localhost:8000/metrics | head
+  curl -s http://localhost:18000/metrics | head
   # HELP db_api_requests_total Total API requests
   # TYPE db_api_requests_total counter
   db_api_requests_total{endpoint="/api/name",method="GET"} 1.0
@@ -103,13 +105,13 @@ export DB_PASSWORD=demo
 ./scripts/update_name.sh "Alice"
 ```
 
-The script updates the row in the `person` table.  Refresh http://localhost:8080 and verify that the displayed name changes to **Alice**.
+The script updates the row in the `person` table.  Refresh http://localhost:18000/api/name and verify that the JSON response shows the new name.
 
 ### Testing automatic layout refresh
 
 The frontend polls `version.txt` every 15 seconds.  To demonstrate automatic layout refresh:
 
-1. Open http://localhost:8080 in a browser tab.
+1. Open http://localhost:18080 in a browser tab.
 2. On your host machine, edit `frontend/static/version.txt` and change the version number (e.g. from `1` to `2`).
 3. Rebuild and restart the frontend container:
 
