@@ -1,81 +1,64 @@
-##
-# kube-state-metrics deployment
-#
-# kube-state-metrics is an add‑on agent that listens to the Kubernetes API
-# server and generates metrics about the state of the objects.  Prometheus
-# scrapes these metrics to provide insight into cluster health.  This manifest
-# deploys kube-state-metrics with minimal RBAC privileges and a Service to
-# expose its metrics on port 8080.  Resources are namespaced under
-# ``monitoring`` but the ClusterRole grants read‑only access across the
-# cluster.
-
----
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: kube-state-metrics
+  # Name prefixed with db- so pods created by the deployment inherit the prefix
+  name: db-kube-state-metrics
   namespace: monitoring
   labels:
     app: kube-state-metrics
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: kube-state-metrics
+  # ClusterRole must also be prefixed otherwise the RBAC objects clash on a shared cluster
+  name: db-kube-state-metrics
   labels:
     app: kube-state-metrics
 rules:
-  # Allow read‑only access to most Kubernetes resources.  This set of
-  # permissions is a trimmed down subset of the full kube-state-metrics
-  # ruleset and is sufficient for basic monitoring.  Additional resources
-  # can be added here if required.
-  - apiGroups: ['']
+  # Grant read access to core Kubernetes resources. Kube‑state‑metrics only
+  # needs get/list/watch verbs to expose metrics about these objects.
+  - apiGroups: [""]
     resources:
       - nodes
       - pods
       - services
       - endpoints
-      - namespaces
-      - replicationcontrollers
-      - resourcequotas
-      - limitranges
-      - persistentvolumes
       - persistentvolumeclaims
-    verbs: ['list', 'watch']
-  - apiGroups: ['apps']
+      - persistentvolumes
+      - secrets
+      - configmaps
+      - cronjobs
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["extensions"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
     resources:
-      - deployments
       - statefulsets
+      - deployments
       - daemonsets
       - replicasets
-    verbs: ['list', 'watch']
-  - apiGroups: ['batch']
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
     resources:
       - jobs
       - cronjobs
-    verbs: ['list', 'watch']
-  - apiGroups: ['autoscaling']
-    resources:
-      - horizontalpodautoscalers
-    verbs: ['list', 'watch']
-
+    verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: kube-state-metrics
+  name: db-kube-state-metrics
   labels:
     app: kube-state-metrics
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: kube-state-metrics
+  name: db-kube-state-metrics
 subjects:
   - kind: ServiceAccount
-    name: kube-state-metrics
+    name: db-kube-state-metrics
     namespace: monitoring
-
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -94,34 +77,26 @@ spec:
       labels:
         app: kube-state-metrics
     spec:
-      serviceAccountName: kube-state-metrics
+      serviceAccountName: db-kube-state-metrics
       containers:
         - name: kube-state-metrics
-          #
-          # Use the official image hosted on the Kubernetes community
-          # container registry.  The original manifest referenced
-          # quay.io/coreos which may not be reachable in restricted
-          # environments, causing an ErrImagePull.  See
-          # https://github.com/kubernetes/kube-state-metrics/releases
-          # for available tags.  If your cluster has network
-          # restrictions or a private registry, adjust the image
-          # accordingly.
-          image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.10.1
+          # Use the upstream image. No tag means default latest release; specify explicit version for reproducibility.
+          image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.10.0
           ports:
             - name: http
               containerPort: 8080
-          # Expose metrics at /metrics on port 8080 (default).  No
-          # additional arguments are required for basic usage.
-
+              protocol: TCP
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: kube-state-metrics
+  # Service also prefixed for clarity. Prometheus will scrape via this service.
+  name: db-kube-state-metrics
   namespace: monitoring
   labels:
     app: kube-state-metrics
 spec:
+  type: ClusterIP
   ports:
     - name: http
       port: 8080

@@ -5,10 +5,13 @@ JOIN_SCRIPT=/vagrant/join.sh
 
 # Initialize control plane if not already
 if [ ! -f /etc/kubernetes/admin.conf ]; then
-  # Detect the private IP on the host-only network. Relying on
-  # `hostname -I | awk '{print $2}'` is brittle and may pick the NAT interface.
+  # Detect the private IP on the host‐only network.  Relying on `hostname -I | awk '{print $2}'`
+  # often returns the wrong interface (e.g. the NAT 10.0.2.x address), which
+  # prevents the control plane from being reachable by worker nodes.  We pick
+  # the first 192.168.56.x address instead.
   APISERVER_IP=$(hostname -I | tr ' ' '\n' | grep -m1 '^192\.168\.56\.') || true
   if [ -z "$APISERVER_IP" ]; then
+    # Fallback to the second address if no 192.168.56.x was found
     APISERVER_IP=$(hostname -I | awk '{print $2}')
   fi
   kubeadm init --pod-network-cidr=10.244.0.0/16 --apiserver-advertise-address="$APISERVER_IP"
@@ -19,14 +22,8 @@ mkdir -p /home/vagrant/.kube
 cp -i /etc/kubernetes/admin.conf /home/vagrant/.kube/config
 chown vagrant:vagrant /home/vagrant/.kube/config
 
-# Install Flannel CNI plugin.
-# In Vagrant, flannel will otherwise pick the default NAT interface (10.0.2.15)
-# on every node, which breaks cross-node pod traffic. Patch the manifest so
-# flanneld binds to the host-only interface used between VMs.
-FLANNEL_MANIFEST=/tmp/kube-flannel.yml
-curl -fsSL -o "$FLANNEL_MANIFEST" https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
-sed -i '/- --kube-subnet-mgr/a\        - --iface=enp0s8' "$FLANNEL_MANIFEST"
-su - vagrant -c "kubectl apply -f $FLANNEL_MANIFEST"
+# Install Flannel CNI plugin
+su - vagrant -c "kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml"
 
 # Generate join script
 kubeadm token create --print-join-command >"${JOIN_SCRIPT}"
@@ -52,8 +49,19 @@ su - vagrant -c "kubectl apply -f ${K8S_DIR}/frontend/deployment.yaml"
 # Ingress
 su - vagrant -c "kubectl apply -f ${K8S_DIR}/ingress/ingress.yaml"
 
-# Deploy optional components from the repo root so relative paths resolve correctly
+# Run the deploy-k8s.sh script to provision optional components such as
+# cert-manager ClusterIssuers, monitoring (Prometheus/kube-state-metrics/node-exporter),
+# and other add-ons.  This script is idempotent and will skip steps
+# if prerequisites like CRDs are not installed, so it is safe to run
+# during provisioning.  Running it here ensures that monitoring is
+# available without manual intervention.
 if [ -f /vagrant/deploy-k8s.sh ]; then
   echo "Running deploy-k8s.sh to install optional components..."
-  su - vagrant -c "cd /vagrant && chmod +x ./deploy-k8s.sh && ./deploy-k8s.sh"
+  # Call the script explicitly via bash.  The /vagrant synced folder on
+  # Windows hosts is typically mounted with the `noexec` flag inside the VM,
+  # which prevents executing a script file directly even if it has the
+  # executable bit set.  By invoking bash and passing the script as an
+  # argument we avoid the noexec restriction and ensure the script runs
+  # during provisioning.  Don't rely on chmod +x here.
+  su - vagrant -c "bash /vagrant/deploy-k8s.sh"
 fi

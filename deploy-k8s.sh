@@ -5,9 +5,6 @@
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
-
 NAMESPACE=db-stack
 
 echo "Creating namespace $NAMESPACE..."
@@ -59,18 +56,9 @@ kubectl apply -f k8s/monitoring/namespace.yaml
 kubectl apply -f k8s/monitoring/prometheus.yaml
 kubectl apply -f k8s/monitoring/kube-state-metrics.yaml
 kubectl apply -f k8s/monitoring/node-exporter.yaml
-
-if kubectl api-resources | grep -q '^servicemonitors[[:space:]]'; then
-  kubectl apply -f k8s/monitoring/service-monitor.yaml
-else
-  echo "Skipping ServiceMonitor creation; Prometheus Operator CRDs not found."
-fi
+kubectl apply -f k8s/monitoring/service-monitor.yaml
 
 echo "Creating ArgoCD application..."
-if kubectl api-resources | grep -q '^applications[[:space:]]'; then
-  kubectl apply -f k8s/argocd/application.yaml
-else
-  echo "Skipping ArgoCD application creation; Argo CD CRDs not found."
-fi
+kubectl apply -f k8s/argocd/application.yaml
 
 echo "Deployment complete.  Use kubectl get all -n $NAMESPACE to monitor resources."

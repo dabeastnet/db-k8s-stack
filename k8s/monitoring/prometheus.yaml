@@ -46,7 +46,7 @@ data:
       - job_name: kube-state-metrics
         static_configs:
           - targets:
-              - kube-state-metrics.monitoring.svc.cluster.local:8080
+              - db-kube-state-metrics.monitoring.svc.cluster.local:8080
 
       # Scrape node-exporter for node level metrics
       - job_name: node-exporter
@@ -138,6 +138,7 @@ subjects:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  # Prefix the deployment name so the resulting pods start with "db-".
   name: db-prometheus
   namespace: monitoring
   labels:
@@ -184,11 +185,16 @@ metadata:
   labels:
     app: prometheus
 spec:
+  # Expose Prometheus via a NodePort so it can be accessed from outside the
+  # cluster without requiring a kubectl port-forward.  The Vagrantfile will
+  # forward this NodePort to a host port for local access.
   type: NodePort
   ports:
     - name: web
       port: 9090
       targetPort: web
+      # Explicitly set a nodePort in the 30000-32767 range.  This port will
+      # be forwarded in the Vagrantfile to the host for convenience.
       nodePort: 30090
   selector:
     app: prometheus

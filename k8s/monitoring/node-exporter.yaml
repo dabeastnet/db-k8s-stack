@@ -12,6 +12,9 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
+  # Use a "db-" prefixed name so the resulting pod names begin with this prefix.
+  # The DaemonSet name determines the pod name prefix, while labels remain
+  # unchanged for the existing Service selector compatibility.
   name: db-node-exporter
   namespace: monitoring
   labels:
