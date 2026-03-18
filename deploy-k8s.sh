@@ -71,6 +71,13 @@ kubectl apply -f "$K8S_DIR/monitoring/service-monitor.yaml" || echo "Skipping Se
 set -e
 
 echo "Creating ArgoCD application..."
-kubectl apply -f "$K8S_DIR/argocd/application.yaml"
+# The ArgoCD Application CRD may not be installed in all clusters.  If the
+# CRDs are missing (e.g. when ArgoCD is not deployed), attempting to
+# apply this manifest will result in an error such as "no matches for kind
+# \"Application\"".  Wrap this operation in a non‑fatal block so that
+# absence of ArgoCD does not cause the entire deployment script to fail.
+set +e
+kubectl apply -f "$K8S_DIR/argocd/application.yaml" || echo "Skipping ArgoCD application creation; ArgoCD CRDs not found."
+set -e
 
 echo "Deployment complete.  Use 'kubectl get all -n $NAMESPACE' to inspect the deployed resources."
