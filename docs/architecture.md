@@ -1,42 +1,145 @@
-# Architecture diagram and explanation
+# Architecture
 
-This document provides an overview of the db‑k8s‑stack architecture and the interactions between its components.  The diagram below is rendered using Mermaid.  You can view it directly on GitHub or copy it into a Mermaid renderer.
+This document describes the architecture of db-k8s-stack and the interactions between its components.
+
+## System diagram
 
 ```mermaid
-graph LR
-  A[Client Browser] -->|HTTPS| B[Ingress Controller]
-  B -->|/| C[Apache Frontend]
-  B -->|/api| D[FastAPI Service]
-  D -->|SQL| E[(PostgreSQL)]
-  F[Prometheus] <-->|/metrics| D
+graph TD
+  Browser["Browser"]
 
-  subgraph Kubernetes Cluster
-    B
-    C
-    D
-    E
-    F
+  subgraph CF["Cloudflare Edge (TLS termination)"]
+    CFEdge["project.beckersd.com\nargocd.beckersd.com"]
   end
 
-  G[ArgoCD] -->|GitOps sync| ClusterState
-  H[Git Repository] -->|Commit manifests| G
+  subgraph Vagrant["VirtualBox (Vagrant)"]
+    subgraph K8s["Kubernetes Cluster"]
+      CFPod["db-cloudflared\ndb-stack ns"]
+      Ingress["db-ingress-nginx\nNodePort 30080 / 30443"]
+
+      subgraph AppNS["db-stack"]
+        Frontend["db-frontend\nApache · 1 replica"]
+        API["db-api\nFastAPI · 2 replicas"]
+        DB[("db-postgres\nStatefulSet")]
+      end
+
+      subgraph MonNS["monitoring"]
+        Prometheus["db-prometheus\nNodePort 30090"]
+        Grafana["db-grafana\nNodePort 30030"]
+        KSM["db-kube-state-metrics"]
+        NE["db-node-exporter\nDaemonSet"]
+      end
+
+      subgraph ArgoCDNS["argocd"]
+        ArgoCD["db-argocd"]
+      end
+    end
+  end
+
+  GitHub["GitHub\ndabeastnet/db-k8s-stack"]
+
+  Browser -->|HTTPS| CFEdge
+  CFEdge <-->|"outbound tunnel"| CFPod
+  CFPod -->|HTTP| Ingress
+  Ingress -->|"/ (project.beckersd.com)"| Frontend
+  Ingress -->|"/api (project.beckersd.com)"| API
+  Ingress -->|"argocd.beckersd.com"| ArgoCD
+  API -->|SQL :5432| DB
+  Prometheus -->|"scrape /metrics :80"| API
+  Prometheus -->|"scrape :8080"| KSM
+  Prometheus -->|"scrape :9100"| NE
+  Grafana -->|PromQL| Prometheus
+  ArgoCD -->|"poll & sync"| GitHub
 ```
 
-### Components
+## Components
 
-* **Client Browser** – A user’s web browser requests the site over HTTPS.  The TLS certificate is issued by Let’s Encrypt through cert‑manager and stored as a Kubernetes secret consumed by the ingress.
-* **Ingress Controller** – An nginx ingress that routes traffic based on the URL path.  It forwards requests with the `/api` prefix to the FastAPI service and all other requests to the Apache frontend.  The ingress terminates TLS and communicates with the services over the cluster network.
-* **Apache Frontend** – A simple HTTP server that serves the static `index.html`, CSS and JavaScript files.  It does not require any backend connectivity, other than to fetch data from the API.
-* **FastAPI Service** – A containerised Python application that implements the REST API.  It connects to PostgreSQL using SQLAlchemy, exposes Prometheus metrics and provides health and readiness endpoints used by Kubernetes probes.  Multiple replicas of this deployment are created to scale out the API and provide fault tolerance.
-* **PostgreSQL** – The relational database running as a Kubernetes StatefulSet with a persistent volume.  It stores the `person` table that holds a single row representing the user’s name.  Alembic migrations manage the schema and seed the table.  Only the API has network access to this service.
-* **Prometheus** – Part of the kube‑prometheus‑stack.  It scrapes the API’s `/metrics` endpoint via the ServiceMonitor resource and stores time‑series metrics such as request counts.  These metrics are used to observe application performance and health.
-* **ArgoCD** – A GitOps controller installed via Helm.  It monitors a Git repository containing the Kubernetes manifests (this repository) and continuously reconciles the desired state with the actual cluster state.  Any changes merged into Git are automatically applied to the cluster.
+### Browser
+End users access the application at `https://project.beckersd.com`. Cloudflare holds the TLS certificate; no certificate management is required inside the cluster for public traffic.
 
-### Data flow
+### Cloudflare Edge
+Terminates HTTPS and routes traffic to the cluster through an outbound Cloudflare Tunnel. No inbound firewall rules or static public IPs are needed. Two public hostnames are configured in the Cloudflare dashboard:
 
-1. A user’s browser resolves the domain (e.g. `app.example.com`) to the ingress controller’s IP and establishes an HTTPS connection.
-2. The ingress decrypts the traffic using a certificate managed by cert‑manager and forwards the request to either the frontend or the API based on the path.
-3. The frontend loads the static HTML page and uses JavaScript `fetch` calls to request `/api/name` and `/api/container-id`.  The responses are JSON objects containing the current name in the database and the container identifier.
-4. The API queries PostgreSQL for the name and returns it.  It also parses `/proc/self/cgroup` to extract the container ID and includes `pod_name` and `hostname` fields from the Kubernetes downward API.
-5. Prometheus scrapes the API’s `/metrics` endpoint on a schedule defined in the ServiceMonitor.  Metrics are stored for alerting and observability.
-6. ArgoCD monitors the Git repository and applies any changes to the Kubernetes manifests.  This ensures configuration drift is corrected and simplifies deployments.
+| Hostname | Routes to |
+|----------|-----------|
+| `project.beckersd.com` | `http://db-ingress-nginx-controller.ingress-nginx.svc.cluster.local` |
+| `argocd.beckersd.com` | `http://db-ingress-nginx-controller.ingress-nginx.svc.cluster.local` |
+
+### db-cloudflared (db-stack namespace)
+A single pod running `cloudflare/cloudflared:latest` that maintains the outbound tunnel to Cloudflare. The tunnel token is stored in the `db-cloudflared-token` Secret. All inbound public traffic enters the cluster through this pod.
+
+### db-ingress-nginx (ingress-nginx namespace)
+nginx ingress controller installed via Helm (release `db-ingress-nginx`). Exposes NodePorts 30080 (HTTP) and 30443 (HTTPS). Routes requests to the correct backend service based on the `Host` header and URL path:
+
+- `Host: project.beckersd.com`, path `/api*` → `db-api:80`
+- `Host: project.beckersd.com`, path `/` → `db-frontend:80`
+- `Host: argocd.beckersd.com` → `db-argocd-server:80`
+- No-host catch-all → same as `project.beckersd.com` (for local access via `localhost:18080`)
+
+### db-frontend (db-stack namespace)
+Apache HTTPD serving `index.html`. The JavaScript page makes two `fetch` calls on load (`/api/name`, `/api/container-id`) and updates the DOM. A polling loop checks `version.txt` every 15 s and reloads the page if the version string changes.
+
+### db-api (db-stack namespace)
+FastAPI application running behind Uvicorn. Two replicas are spread across `worker1` and `worker2` by a `topologySpreadConstraints` rule. On startup the Alembic migration ensures the `person` table exists and is seeded. Key endpoints:
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/name` | Returns name from `person` table in PostgreSQL |
+| `GET /api/container-id` | Returns container ID (parsed from `/proc/self/cgroup`) and pod metadata |
+| `GET /healthz` | Liveness probe — always 200 |
+| `GET /readyz` | Readiness probe — runs `SELECT 1`, returns 503 if DB unreachable |
+| `GET /metrics` | Prometheus exposition; exposes `db_api_requests_total` counter |
+
+### db-postgres (db-stack namespace)
+PostgreSQL 16 running as a StatefulSet with a hostPath PersistentVolume (`/mnt/postgres-data` on the node). Only the API has network access to this service (ClusterIP).
+
+### Monitoring (monitoring namespace)
+
+| Component | Role |
+|-----------|------|
+| `db-prometheus` | Scrapes API, kube-state-metrics, and all nodes (node-exporter); NodePort 30090 |
+| `db-grafana` | Dashboard UI with pre-provisioned Prometheus datasource and overview dashboard; NodePort 30030 |
+| `db-kube-state-metrics` | Exports Kubernetes object state metrics (pod phases, node conditions, restart counts) |
+| `db-node-exporter` | DaemonSet exporting CPU, memory, disk I/O per node |
+
+### db-argocd (argocd namespace)
+ArgoCD installed via Helm (release `db-argocd`) with `--insecure` mode so nginx can proxy it over plain HTTP. The `db-app` ArgoCD Application watches the `k8s/` directory of this repository and applies changes automatically (prune + self-heal enabled).
+
+### GitHub
+The authoritative source for Kubernetes manifests. ArgoCD polls it on a schedule (default ~3 minutes) and reconciles any drift between the repository and the cluster state.
+
+## Data flow
+
+1. User visits `https://project.beckersd.com` → Cloudflare terminates TLS
+2. Cloudflare sends plain HTTP to the `db-cloudflared` pod via the tunnel
+3. `db-cloudflared` forwards to `db-ingress-nginx` on port 80
+4. nginx routes `/` to `db-frontend`, `/api` to `db-api`, based on `Host: project.beckersd.com`
+5. The browser loads `index.html` and JavaScript calls `GET /api/name` and `GET /api/container-id`
+6. `db-api` queries PostgreSQL for the name; parses `/proc/self/cgroup` for the container ID
+7. Prometheus scrapes `db-api:80/metrics` on a 15 s schedule; Grafana queries Prometheus for dashboards
+8. ArgoCD polls GitHub; any committed change to `k8s/` is applied within ~3 minutes
+
+## Provisioning flow
+
+```
+vagrant up
+  ├── cp1: provision-common.sh  (swap, containerd, k8s packages)
+  │   provision-master.sh
+  │     kubeadm init
+  │     Flannel CNI (patched to enp0s8)
+  │     Helm install db-ingress-nginx
+  │     Helm install db-argocd
+  │     Generate join.sh
+  │     kubectl apply (namespace, configmap, secret, postgres, api, frontend, ingress)
+  │     deploy-k8s.sh (monitoring, cloudflared, argocd application)
+  │
+  ├── worker1: provision-common.sh
+  │   provision-worker.sh
+  │     wait for 192.168.56.10:6443
+  │     kubeadm join
+  │
+  └── worker2: provision-common.sh
+      provision-worker.sh
+        wait for 192.168.56.10:6443
+        kubeadm join
+```
