@@ -39,7 +39,7 @@ spec:
       hostNetwork: true
       hostPID: true
       containers:
-        - name: node-exporter
+        - name: db-node-exporter
           image: prom/node-exporter:v1.8.0
           args:
             - --path.procfs=/host/proc

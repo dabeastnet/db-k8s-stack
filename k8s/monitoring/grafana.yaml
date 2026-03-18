@@ -160,7 +160,7 @@ spec:
         runAsGroup: 472
         fsGroup: 472
       containers:
-        - name: grafana
+        - name: db-grafana
           image: grafana/grafana:10.2.2
           ports:
             - containerPort: 3000

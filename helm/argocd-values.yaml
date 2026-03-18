@@ -28,8 +28,7 @@ server:
   ingress:
     enabled: true
     ingressClassName: nginx
-    hosts:
-      - argocd.beckersd.com
+    hostname: argocd.beckersd.com
     annotations:
       nginx.ingress.kubernetes.io/ssl-redirect: "false"
       nginx.ingress.kubernetes.io/backend-protocol: "HTTP"

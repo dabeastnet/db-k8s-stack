@@ -79,7 +79,7 @@ spec:
     spec:
       serviceAccountName: db-kube-state-metrics
       containers:
-        - name: kube-state-metrics
+        - name: db-kube-state-metrics
           # Use the upstream image. No tag means default latest release; specify explicit version for reproducibility.
           image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.10.0
           ports:

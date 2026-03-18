@@ -133,7 +133,7 @@ spec:
     spec:
       serviceAccountName: db-prometheus
       containers:
-        - name: prometheus
+        - name: db-prometheus
           image: prom/prometheus:v2.47.2
           args:
             - --config.file=/etc/prometheus/prometheus.yml

@@ -44,7 +44,7 @@ fi
 # forwarded from the host in the Vagrantfile.
 su - vagrant -c "helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx || true"
 su - vagrant -c "helm repo update"
-su - vagrant -c "helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+su - vagrant -c "helm upgrade --install db-ingress-nginx ingress-nginx/ingress-nginx \
   --namespace ingress-nginx --create-namespace \
   --set controller.service.type=NodePort \
   --set controller.service.nodePorts.http=30080 \
@@ -58,7 +58,7 @@ su - vagrant -c "helm upgrade --install ingress-nginx ingress-nginx/ingress-ngin
 # outer TLS is handled by Cloudflare Tunnel (or cert-manager later).
 su - vagrant -c "helm repo add argo https://argoproj.github.io/argo-helm || true"
 su - vagrant -c "helm repo update"
-su - vagrant -c "helm upgrade --install argocd argo/argo-cd \
+su - vagrant -c "helm upgrade --install db-argocd argo/argo-cd \
   --namespace argocd --create-namespace \
   -f /vagrant/helm/argocd-values.yaml"
 # No --wait: same reason as ingress-nginx above.
