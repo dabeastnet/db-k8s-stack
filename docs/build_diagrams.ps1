@@ -141,47 +141,47 @@ sequenceDiagram
 # 4. Name Update Flow
 Get-DiagramPng "04_name_update_flow" @"
 flowchart TD
-  A["Operator on cp1"] --> B["source load_env_var.sh\nPrompts for DB_USER and DB_PASSWORD\nExports to current shell session"]
+  A["Operator on cp1"] --> B["source load_env_var.sh Prompts for DB_USER and DB_PASSWORD Exports to current shell session"]
   B --> C["bash update_name.sh Alice"]
-  C --> D["kubectl get pod -n db-stack\n-l app=db-postgres\nFinds: db-postgres-0"]
-  D --> E["kubectl exec -i db-postgres-0\nenv PGPASSWORD=demo psql\nUPDATE person SET name='Alice' WHERE id=1"]
+  C --> D["kubectl get pod -n db-stack -l app=db-postgres Finds: db-postgres-0"]
+  D --> E["kubectl exec -i db-postgres-0 env PGPASSWORD=demo psql UPDATE person SET name='Alice' WHERE id=1"]
   E --> F["PostgreSQL confirms UPDATE 1"]
-  F --> G["curl /api/name\nReturns: name=Alice"]
-  G --> H["Browser refresh\nWelcome Alice!"]
+  F --> G["curl /api/name Returns: name=Alice"]
+  G --> H["Browser refresh Welcome Alice!"]
 "@
 
 # 5. Auto Layout Refresh Flow
 Get-DiagramPng "05_auto_refresh_flow" @"
 flowchart TD
-  A["Browser loads page\nwindow.currentVersion = null"] --> B["init: fetchName + fetchContainerId"]
+  A["Browser loads page window.currentVersion = null"] --> B["init: fetchName + fetchContainerId"]
   B --> C["checkVersion called immediately"]
-  C --> D["fetch /version.txt?_t=timestamp\ncache-busting query string"]
+  C --> D["fetch /version.txt?_t=timestamp cache-busting query string"]
   D --> E{"currentVersion matches?"}
   E -- "Yes (no change)" --> F["setInterval: wait 15 seconds"]
   F --> D
-  E -- "No (version changed)" --> G["location.reload()\nFull page refresh"]
+  E -- "No (version changed)" --> G["location.reload() Full page refresh"]
   G --> A
 
-  H["Operator: edit version.txt\n1 to 2\nRebuild image\nkubectl rollout restart"] --> I["New pod serves version.txt = 2"]
+  H["Operator: edit version.txt 1 to 2 Rebuild image kubectl rollout restart"] --> I["New pod serves version.txt = 2"]
   I --> E
 "@
 
 # 6. GitOps Sync Flow
 Get-DiagramPng "06_gitops_sync_flow" @"
 flowchart TD
-  A["Developer edits manifest\nin k8s/ directory"] --> B["git commit + git push\nto main branch"]
-  B --> C["GitHub\ndabeastnet/db-k8s-stack"]
-  C --> D["ArgoCD repo-server\npolls every ~3 minutes"]
-  D --> E{"Diff between\nGit HEAD and\ncluster state?"}
+  A["Developer edits manifest in k8s/ directory"] --> B["git commit + git push to main branch"]
+  B --> C["GitHub dabeastnet/db-k8s-stack"]
+  C --> D["ArgoCD repo-server polls every ~3 minutes"]
+  D --> E{"Diff between Git HEAD and cluster state?"}
   E -- No --> D
-  E -- Yes --> F["ArgoCD application-controller\ngenerates sync plan"]
-  F --> G["kubectl apply changed manifests\nto db-stack namespace"]
-  G --> H["Cluster state matches\nGit HEAD"]
+  E -- Yes --> F["ArgoCD application-controller generates sync plan"]
+  F --> G["kubectl apply changed manifests to db-stack namespace"]
+  G --> H["Cluster state matches Git HEAD"]
 
-  I["Manual kubectl edit\nin cluster"] --> J{"selfHeal: true\ndetects drift"}
+  I["Manual kubectl edit in cluster"] --> J{"selfHeal: true detects drift"}
   J --> F
 
-  K["Resource deleted from Git\nautomated.prune: true"] --> F
+  K["Resource deleted from Git automated.prune: true"] --> F
 "@
 
 Write-Host "`nAll diagrams rendered to $diagDir"
